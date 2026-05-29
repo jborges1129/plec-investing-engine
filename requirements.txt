@@ -1,0 +1,8 @@
+yfinance
+alpaca-py
+pandas
+streamlit
+python-dotenv
+schedule
+sqlalchemy
+plotly

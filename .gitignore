@@ -1,0 +1,28 @@
+# Environment & secrets
+.env
+
+# Database & generated data
+data/trading.db
+data/*.db
+data/screener_cache_*.json
+data/sp_universe.csv
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# Logs
+logs/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

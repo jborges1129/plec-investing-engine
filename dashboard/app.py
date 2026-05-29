@@ -1054,6 +1054,8 @@ with tab2:
         if not dashboard.empty:
             has_short = 'return_1d' in dashboard.columns
             cols = ['rank', 'symbol']
+            if 'composite_score' in dashboard.columns:
+                cols += ['composite_score']
             if has_short:
                 cols += ['return_1d', 'return_5d']
             cols += ['return_1m', 'return_3m', 'return_6m', 'rsi', 'volume_trend', 'stop_loss_pct', 'take_profit_pct']
@@ -1064,8 +1066,11 @@ with tab2:
             for col in pct_cols:
                 display[col] = display[col].apply(lambda x: f"{x*100:+.1f}%")
             display['rsi'] = display['rsi'].apply(lambda x: f"{x:.1f}")
+            if 'composite_score' in display.columns:
+                display['composite_score'] = display['composite_score'].apply(lambda x: f"{x:.1f}")
 
             rename = {'rank': 'Rank', 'symbol': 'ETF', 'name': 'Name',
+                      'composite_score': 'Score /100',
                       'return_1d': 'Today', 'return_5d': '1W', 'return_1m': '1M',
                       'return_3m': '3M', 'return_6m': '6M', 'rsi': 'RSI',
                       'volume_trend': 'Volume', 'stop_loss_pct': 'Stop', 'take_profit_pct': 'TP'}

@@ -13,7 +13,7 @@ Two parallel strategies sharing one database and risk framework:
 
 | Module | Strategy | Automation |
 |--------|----------|------------|
-| **ETF** | Momentum-ranks 20 sector ETFs, holds the top 3 by 3-month return. Regime-aware: reduces exposure when VIX > 25 or SPY < 200-day MA. | Fully automated. Orders placed and managed without intervention. |
+| **ETF** | Scores 20 sector ETFs across 12 independent factors every 15 minutes, holds the top 3 by composite score. Regime-aware: reduces exposure when VIX > 25 or SPY < 200-day MA. | Fully automated. Orders placed and managed without intervention. |
 | **Stocks** | Daily screen of ~1,000 S&P 400/600 stocks. Scores setups 0–10 across 7 technical criteria. Surfaces top 20 candidates each morning. | Human reviews and approves every entry. |
 
 ---
@@ -48,11 +48,34 @@ Paper trading began **May 26, 2026**. The dashboard shows:
 
 ---
 
+## ETF Scoring Model — 12 Factors, 0–100 Composite Score
+
+Every 15 minutes during market hours, each ETF is scored across 12 independent factors. The top-scoring ETFs with positive 3-month momentum are held.
+
+| Factor | Weight | What it measures |
+|--------|--------|-----------------|
+| 3-month return | 22% | Cross-sectional momentum — the Antonacci primary signal |
+| 1-month return | 10% | Short-term continuation — avoids buying exhausted runs |
+| Momentum acceleration | 8% | Is the 1-month pace outrunning the 3-month pace? |
+| Alpha vs SPY | 12% | Excess return over the S&P 500 — rewards true alpha, not just beta |
+| Sharpe ratio (3m) | 10% | Risk-adjusted return — same return at lower volatility ranks higher |
+| Max drawdown (3m, inverted) | 8% | Penalizes choppy/unstable price histories |
+| RSI positioning | 6% | Sweet spot 45–65; extremes signal mean-reversion risk |
+| MACD signal | 8% | Trend direction confirmation — MACD vs signal line |
+| % above 50-day MA | 6% | Near-term trend alignment |
+| % above 200-day MA | 4% | Long-term structural trend |
+| Relative volume (5d/20d) | 4% | Institutional conviction — rising volume confirms the move |
+| Regime fit | 2% | Alignment with current macro regime (Bull/Neutral/Bear) |
+
+All z-score factors are normalized cross-sectionally within the current candidate universe each run. The absolute momentum filter (>1% 3-month return) acts as a hard gate before scoring — no ETF in a 3-month decline enters the portfolio regardless of its composite score.
+
 ## Strategy Parameters — Academic Basis
 
 - **ATR × 3 stop:** factor-of-safety framing — 3 standard deviations of daily range to trigger (Wilder, 1978)
 - **2.5:1 reward-risk:** expected value = 0.60 × 2.5 − 0.40 × 1.0 = **+1.10 per unit of risk** at a 60% win rate
-- **3-month momentum filter:** Jegadeesh & Titman (1993); Antonacci *Dual Momentum Investing* (2014) — ETFs must show >1% gain over the prior 3 months to qualify
+- **Momentum filter:** Jegadeesh & Titman (1993); Antonacci *Dual Momentum Investing* (2014) — ETFs must show >1% gain over the prior 3 months to qualify
+- **MACD (12/26/9):** trend direction confirmation — reduces false positives from short-term noise
+- **Sharpe ratio:** rewards high-quality returns, not just raw returns — avoids holding volatile ETFs that happen to be up
 - **Regime detection:** VIX threshold + 200-day MA crossover — reduces exposure in bear markets, consistent with risk-parity frameworks
 
 ---

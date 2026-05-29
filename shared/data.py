@@ -158,7 +158,7 @@ def get_atr(df: pd.DataFrame, period: int = 14) -> float:
 
 
 def get_volume_trend(df: pd.DataFrame) -> str:
-    """Compute volume trend from a pre-fetched history DataFrame."""
+    """Compute volume trend label from a pre-fetched history DataFrame."""
     vol = df['Volume']
     if len(vol) < 20:
         return 'neutral'
@@ -172,6 +172,61 @@ def get_volume_trend(df: pd.DataFrame) -> str:
     elif ratio < 0.85:
         return 'falling'
     return 'neutral'
+
+
+def get_volume_ratio(df: pd.DataFrame) -> float:
+    """5-day average volume divided by 20-day baseline average."""
+    vol = df['Volume']
+    if len(vol) < 20:
+        return 1.0
+    recent   = float(vol.iloc[-5:].mean())
+    baseline = float(vol.iloc[-20:-5].mean())
+    return recent / baseline if baseline > 0 else 1.0
+
+
+def get_macd(df: pd.DataFrame, fast: int = 12, slow: int = 26, signal: int = 9) -> dict:
+    """MACD line, signal line, and histogram (standard 12/26/9 parameters)."""
+    close = df['Close']
+    ema_fast   = close.ewm(span=fast,   adjust=False).mean()
+    ema_slow   = close.ewm(span=slow,   adjust=False).mean()
+    macd_line  = ema_fast - ema_slow
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    return {
+        'macd':        float(macd_line.iloc[-1]),
+        'macd_signal': float(signal_line.iloc[-1]),
+        'macd_hist':   float((macd_line - signal_line).iloc[-1]),
+    }
+
+
+def get_ma_distances(df: pd.DataFrame) -> dict:
+    """Price position relative to 50-day and 200-day moving averages."""
+    close = df['Close']
+    price = float(close.iloc[-1])
+    n     = len(close)
+    ma50  = float(close.rolling(50).mean().iloc[-1])  if n >= 50  else price
+    ma200 = float(close.rolling(200).mean().iloc[-1]) if n >= 200 else price
+    return {
+        'ma50':            ma50,
+        'ma200':           ma200,
+        'pct_above_ma50':  (price - ma50)  / ma50  if ma50  > 0 else 0.0,
+        'pct_above_ma200': (price - ma200) / ma200 if ma200 > 0 else 0.0,
+    }
+
+
+def get_realized_vol(df: pd.DataFrame, period: int = 63) -> float:
+    """Annualized realized volatility over the trailing `period` trading days (~3 months)."""
+    close = df['Close']
+    rets  = close.pct_change().dropna()
+    tail  = rets.iloc[-min(period, len(rets)):]
+    return float(tail.std() * (252 ** 0.5))
+
+
+def get_max_drawdown(df: pd.DataFrame, period: int = 63) -> float:
+    """Max drawdown (negative fraction) over the trailing `period` bars."""
+    close    = df['Close'].iloc[-period:]
+    roll_max = close.cummax()
+    dd       = (close - roll_max) / roll_max
+    return float(dd.min())
 
 
 def get_market_regime() -> dict:
@@ -303,28 +358,62 @@ def get_prior_day_summary() -> dict:
 
 def rank_etfs_by_momentum(universe: list = None) -> pd.DataFrame:
     """
-    Fetch history once per symbol and compute all signals from that single DataFrame.
-    Reduces HTTP requests from ~100 to ~20 for the full universe.
+    Fetch history once per symbol and compute all 12 scoring factors in a single pass.
+
+    Factors returned per row:
+      Momentum  — return_1d/5d/1m/3m/6m
+      Technical — rsi, macd/macd_signal/macd_hist, pct_above_ma50/ma200
+      Risk      — atr, realized_vol_3m, max_drawdown_3m
+      Volume    — volume_trend (label), volume_ratio (float)
+      Reference — spy_return_3m (for alpha calculation in strategy layer)
     """
     if universe is None:
         universe = ETF_UNIVERSE
+
     results = []
     for symbol in universe:
         try:
-            df = _fetch_full_history(symbol)
-            price = float(df['Close'].iloc[-1])
-            mom = get_momentum(df)
-            atr = get_atr(df)
-            rsi = get_rsi(df)
-            volume_trend = get_volume_trend(df)
+            df           = _fetch_full_history(symbol)
+            price        = float(df['Close'].iloc[-1])
+            mom          = get_momentum(df)
+            atr          = get_atr(df)
+            rsi          = get_rsi(df)
+            vol_trend    = get_volume_trend(df)
+            vol_ratio    = get_volume_ratio(df)
+            macd_data    = get_macd(df)
+            ma_data      = get_ma_distances(df)
+            realized_vol = get_realized_vol(df)
+            max_dd       = get_max_drawdown(df)
             results.append({
-                'symbol': symbol,
-                'price': price,
-                'atr': atr,
-                'rsi': rsi,
-                'volume_trend': volume_trend,
+                'symbol':          symbol,
+                'price':           price,
+                'atr':             atr,
+                'rsi':             rsi,
+                'volume_trend':    vol_trend,
+                'volume_ratio':    vol_ratio,
+                'realized_vol_3m': realized_vol,
+                'max_drawdown_3m': max_dd,
                 **mom,
+                **macd_data,
+                **ma_data,
             })
         except Exception as e:
             print(f"Warning: skipping {symbol} — {e}")
-    return pd.DataFrame(results)
+
+    out = pd.DataFrame(results)
+    if out.empty:
+        return out
+
+    # Attach SPY benchmark return for alpha calculation (avoids double-fetch when SPY is in universe)
+    spy_row = out[out['symbol'] == 'SPY']
+    if not spy_row.empty:
+        spy_return_3m = float(spy_row['return_3m'].iloc[0])
+    else:
+        try:
+            spy_df        = _fetch_full_history('SPY')
+            spy_return_3m = float(get_momentum(spy_df)['return_3m'])
+        except Exception:
+            spy_return_3m = 0.0
+
+    out['spy_return_3m'] = spy_return_3m
+    return out

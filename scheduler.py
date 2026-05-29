@@ -91,7 +91,7 @@ def run_scheduler():
     trigger = CronTrigger(
         day_of_week='mon-fri',
         hour=f'{MARKET_OPEN_HOUR}-{MARKET_CLOSE_HOUR}',
-        minute='5,35',    # :05 and :35 past the hour
+        minute='0,15,30,45',  # every 15 min — re-ranks all ETFs each cycle
         timezone=ET,
     )
 

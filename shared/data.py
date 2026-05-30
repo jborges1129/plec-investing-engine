@@ -1,7 +1,9 @@
 import os
+import time
 import requests
 import yfinance as yf
 import pandas as pd
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -72,25 +74,76 @@ _MOMENTUM_PERIOD = '8mo'
 _MIN_BARS_FOR_6M = 126
 
 
+def _yf_fetch(symbol: str, period: str, interval: str = '1d') -> pd.DataFrame:
+    """
+    yfinance fetch with exponential-backoff retry (3 attempts: 0s, 2s, 4s).
+    Used for VIX and any path that cannot use the Alpaca data API.
+    """
+    last_exc: Exception = RuntimeError("unreachable")
+    for attempt in range(3):
+        try:
+            df = yf.Ticker(symbol).history(period=period, interval=interval)
+            if not df.empty:
+                return df
+            raise ValueError(f"Empty response for {symbol}")
+        except Exception as exc:
+            last_exc = exc
+            if attempt < 2:
+                time.sleep(2 ** attempt)   # 0 s, 2 s, 4 s
+    raise last_exc
+
+
+def _fetch_alpaca_batch(symbols: list[str]) -> dict[str, pd.DataFrame]:
+    """
+    Fetch ~1 year of daily OHLCV for all symbols in a single Alpaca API call.
+    Returns {symbol: DataFrame} with capitalized column names (Open/High/Low/Close/Volume)
+    to match the yfinance format expected by all downstream computations.
+    """
+    from alpaca.data.requests import StockBarsRequest
+    from alpaca.data.timeframe import TimeFrame
+    from shared.alpaca import get_data_client
+
+    client  = get_data_client()
+    request = StockBarsRequest(
+        symbol_or_symbols=symbols,
+        timeframe=TimeFrame.Day,
+        start=datetime.now() - timedelta(days=370),
+        adjustment='all',   # split- and dividend-adjusted, matches yfinance auto_adjust
+    )
+    bars     = client.get_stock_bars(request)
+    full_df  = bars.df   # MultiIndex: (symbol, timestamp), columns lowercase
+
+    result: dict[str, pd.DataFrame] = {}
+    for sym in symbols:
+        try:
+            df = full_df.loc[sym].copy()
+            df = df.rename(columns={
+                'open': 'Open', 'high': 'High', 'low': 'Low',
+                'close': 'Close', 'volume': 'Volume',
+            })
+            if df.index.tz is not None:
+                df.index = df.index.tz_convert('UTC').tz_localize(None)
+            result[sym] = df
+        except KeyError:
+            pass   # symbol absent from response — caller falls back to yfinance
+    return result
+
+
 def get_price_history(symbol: str, period: str = '6mo') -> pd.DataFrame:
-    ticker = yf.Ticker(symbol)
-    df = ticker.history(period=period)
-    if df.empty:
-        raise ValueError(f"No price data for {symbol}")
-    return df
+    """yfinance fetch with retry. Used for dashboard charts and VIX in regime detection."""
+    return _yf_fetch(symbol, period=period)
 
 
 def get_hourly_history(symbol: str, period: str = '5d') -> pd.DataFrame:
-    ticker = yf.Ticker(symbol)
-    df = ticker.history(period=period, interval='1h')
+    df = _yf_fetch(symbol, period=period, interval='1h')
     if df.empty:
         raise ValueError(f"No hourly data for {symbol}")
     return df
 
 
 def _fetch_full_history(symbol: str) -> pd.DataFrame:
-    """Single fetch covering all momentum/RSI/ATR/volume needs (8 months)."""
-    return get_price_history(symbol, period=_MOMENTUM_PERIOD)
+    """yfinance fallback for a single symbol — used when Alpaca batch misses a symbol."""
+    return _yf_fetch(symbol, period=_MOMENTUM_PERIOD)
 
 
 def get_current_price(symbol: str) -> float:
@@ -230,18 +283,30 @@ def get_max_drawdown(df: pd.DataFrame, period: int = 63) -> float:
 
 
 def get_market_regime() -> dict:
-    spy = get_price_history('SPY', period='1y')
-    close = spy['Close']
+    # SPY via Alpaca (official API, single call, no rate-limit risk)
+    spy_data = _fetch_alpaca_batch(['SPY'])
+    if spy_data:
+        spy = spy_data['SPY']
+    else:
+        # Alpaca failed — fall back to yfinance with retry
+        spy = _yf_fetch('SPY', period='1y')
+
+    close   = spy['Close']
     current = float(close.iloc[-1])
-    ma200 = float(close.rolling(200).mean().iloc[-1])
-    ma50 = float(close.rolling(50).mean().iloc[-1])
+    ma200   = float(close.rolling(200).mean().iloc[-1])
+    ma50    = float(close.rolling(50).mean().iloc[-1])
 
-    vix = yf.Ticker('^VIX')
-    vix_hist = vix.history(period='5d')
-    vix_level = float(vix_hist['Close'].iloc[-1]) if not vix_hist.empty else 20.0
+    # VIX: yfinance only (Alpaca does not carry index data).
+    # If the fetch fails after retries, default to 20 (neutral) so the scheduler
+    # continues running rather than crashing the whole cycle.
+    vix_level = 20.0
+    try:
+        vix_hist  = _yf_fetch('^VIX', period='5d')
+        vix_level = float(vix_hist['Close'].iloc[-1])
+    except Exception as e:
+        print(f"  VIX fetch failed — defaulting to 20.0 (neutral): {e}")
 
-    # Symmetric logic: both conditions required for bull AND bear
-    # Neutral catches everything in between
+    # Both conditions must be true simultaneously to avoid false regime flips
     if vix_level < 20 and current > ma200:
         regime = 'bull'
     elif vix_level > 25 and current < ma200:
@@ -340,11 +405,11 @@ def get_prior_day_summary() -> dict:
     results = {}
     for symbol in ['SPY', 'QQQ', 'TLT', 'GLD', '^VIX']:
         try:
-            df = yf.Ticker(symbol).history(period='5d')
+            df = _yf_fetch(symbol, period='5d')
             if len(df) >= 2:
                 prev_close = float(df['Close'].iloc[-2])
                 last_close = float(df['Close'].iloc[-1])
-                last_date = df.index[-1].date()
+                last_date  = df.index[-1].date()
                 results[symbol] = {
                     'prev_close': prev_close,
                     'last_close': last_close,
@@ -356,9 +421,42 @@ def get_prior_day_summary() -> dict:
     return results
 
 
+def _compute_symbol_row(symbol: str, df: pd.DataFrame) -> dict:
+    """Compute all 12 factor inputs from a single price history DataFrame."""
+    price        = float(df['Close'].iloc[-1])
+    mom          = get_momentum(df)
+    atr          = get_atr(df)
+    rsi          = get_rsi(df)
+    vol_trend    = get_volume_trend(df)
+    vol_ratio    = get_volume_ratio(df)
+    macd_data    = get_macd(df)
+    ma_data      = get_ma_distances(df)
+    realized_vol = get_realized_vol(df)
+    max_dd       = get_max_drawdown(df)
+    return {
+        'symbol':          symbol,
+        'price':           price,
+        'atr':             atr,
+        'rsi':             rsi,
+        'volume_trend':    vol_trend,
+        'volume_ratio':    vol_ratio,
+        'realized_vol_3m': realized_vol,
+        'max_drawdown_3m': max_dd,
+        **mom,
+        **macd_data,
+        **ma_data,
+    }
+
+
 def rank_etfs_by_momentum(universe: list = None) -> pd.DataFrame:
     """
-    Fetch history once per symbol and compute all 12 scoring factors in a single pass.
+    Score all ETFs in the universe across 12 factors.
+
+    Data strategy:
+      Primary  — Alpaca StockHistoricalDataClient: single batched API call for all symbols,
+                 official SLA, same credentials as the trading client.
+      Fallback — yfinance with exponential-backoff retry, used per-symbol if Alpaca
+                 omits a symbol or the batch call itself fails.
 
     Factors returned per row:
       Momentum  — return_1d/5d/1m/3m/6m
@@ -370,50 +468,47 @@ def rank_etfs_by_momentum(universe: list = None) -> pd.DataFrame:
     if universe is None:
         universe = ETF_UNIVERSE
 
+    # ── Primary: Alpaca batch (one API call for the entire universe) ──────────
+    alpaca_data: dict[str, pd.DataFrame] = {}
+    try:
+        alpaca_data = _fetch_alpaca_batch(universe)
+        missing = [s for s in universe if s not in alpaca_data]
+        if missing:
+            print(f"  Alpaca missing {len(missing)} symbols, falling back to yfinance: {missing}")
+    except Exception as e:
+        print(f"  Alpaca batch fetch failed — falling back to yfinance for all symbols: {e}")
+
+    # ── Process each symbol ───────────────────────────────────────────────────
     results = []
     for symbol in universe:
         try:
-            df           = _fetch_full_history(symbol)
-            price        = float(df['Close'].iloc[-1])
-            mom          = get_momentum(df)
-            atr          = get_atr(df)
-            rsi          = get_rsi(df)
-            vol_trend    = get_volume_trend(df)
-            vol_ratio    = get_volume_ratio(df)
-            macd_data    = get_macd(df)
-            ma_data      = get_ma_distances(df)
-            realized_vol = get_realized_vol(df)
-            max_dd       = get_max_drawdown(df)
-            results.append({
-                'symbol':          symbol,
-                'price':           price,
-                'atr':             atr,
-                'rsi':             rsi,
-                'volume_trend':    vol_trend,
-                'volume_ratio':    vol_ratio,
-                'realized_vol_3m': realized_vol,
-                'max_drawdown_3m': max_dd,
-                **mom,
-                **macd_data,
-                **ma_data,
-            })
+            if symbol in alpaca_data and len(alpaca_data[symbol]) >= _MIN_BARS_FOR_6M:
+                df = alpaca_data[symbol]
+            else:
+                df = _fetch_full_history(symbol)   # yfinance fallback with retry
+
+            results.append(_compute_symbol_row(symbol, df))
         except Exception as e:
-            print(f"Warning: skipping {symbol} — {e}")
+            print(f"  Warning: skipping {symbol} — {e}")
 
     out = pd.DataFrame(results)
     if out.empty:
         return out
 
-    # Attach SPY benchmark return for alpha calculation (avoids double-fetch when SPY is in universe)
+    # SPY benchmark return for cross-sectional alpha calculation
     spy_row = out[out['symbol'] == 'SPY']
     if not spy_row.empty:
         spy_return_3m = float(spy_row['return_3m'].iloc[0])
     else:
+        # SPY not in universe (bear regime) — fetch it separately via Alpaca
         try:
-            spy_df        = _fetch_full_history('SPY')
-            spy_return_3m = float(get_momentum(spy_df)['return_3m'])
+            spy_batch     = _fetch_alpaca_batch(['SPY'])
+            spy_return_3m = float(get_momentum(spy_batch['SPY'])['return_3m'])
         except Exception:
-            spy_return_3m = 0.0
+            try:
+                spy_return_3m = float(get_momentum(_fetch_full_history('SPY'))['return_3m'])
+            except Exception:
+                spy_return_3m = 0.0
 
     out['spy_return_3m'] = spy_return_3m
     return out

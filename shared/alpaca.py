@@ -8,16 +8,35 @@ from alpaca.trading.requests import (
     TrailingStopOrderRequest,
 )
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+from alpaca.data.historical import StockHistoricalDataClient
 
 load_dotenv()
 
+# Singletons — created once, reused across calls
+_trading_client: TradingClient | None = None
+_data_client: StockHistoricalDataClient | None = None
+
 
 def get_client() -> TradingClient:
-    return TradingClient(
-        api_key=os.getenv('ALPACA_API_KEY'),
-        secret_key=os.getenv('ALPACA_SECRET_KEY'),
-        paper=True,
-    )
+    global _trading_client
+    if _trading_client is None:
+        _trading_client = TradingClient(
+            api_key=os.getenv('ALPACA_API_KEY'),
+            secret_key=os.getenv('ALPACA_SECRET_KEY'),
+            paper=True,
+        )
+    return _trading_client
+
+
+def get_data_client() -> StockHistoricalDataClient:
+    """Alpaca market data client — official API, same keys as trading client."""
+    global _data_client
+    if _data_client is None:
+        _data_client = StockHistoricalDataClient(
+            api_key=os.getenv('ALPACA_API_KEY'),
+            secret_key=os.getenv('ALPACA_SECRET_KEY'),
+        )
+    return _data_client
 
 
 def get_account():

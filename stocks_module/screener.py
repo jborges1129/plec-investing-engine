@@ -185,15 +185,22 @@ def download_benchmarks() -> dict[str, pd.Series]:
 def _fetch_one_fundamental(symbol: str) -> dict:
     """Fetch fundamental data for a single symbol via yfinance."""
     default = {
-        'earnings_soon': False,
-        'eps_positive':  True,
-        'revenue_ok':    True,
-        'short_float':   0.0,
-        'short_flag':    False,
+        'earnings_soon':    False,
+        'eps_positive':     True,
+        'revenue_ok':       True,
+        'short_float':      0.0,
+        'short_flag':       False,
         'short_disqualify': False,
-        'sector':        'Unknown',
-        'name':          symbol,
-        'market_cap':    0,
+        'sector':           'Unknown',
+        'name':             symbol,
+        'market_cap':       0,
+        'analyst_target':   None,
+        'analyst_count':    None,
+        'analyst_rating':   None,
+        'rev_q_growth':     [],
+        'rev_trend':        None,
+        'eps_surprise_pct': None,
+        'eps_beat_rate':    None,
     }
     try:
         t    = yf.Ticker(symbol)
@@ -230,6 +237,58 @@ def _fetch_one_fundamental(symbol: str) -> dict:
         name          = info.get('longName') or info.get('shortName', symbol) or symbol
         market_cap    = int(info.get('marketCap') or 0)
 
+        # Analyst consensus
+        analyst_target = info.get('targetMeanPrice')
+        analyst_target = float(analyst_target) if analyst_target else None
+        analyst_count  = info.get('numberOfAnalystOpinions')
+        analyst_count  = int(analyst_count) if analyst_count else None
+        analyst_rating = (info.get('recommendationKey') or '').lower().strip() or None
+
+        # Quarterly revenue trend (last 3 quarters, QoQ growth)
+        rev_q_growth = []
+        rev_trend    = None
+        try:
+            qfin = t.quarterly_income_stmt
+            if qfin is not None and not qfin.empty:
+                rev_key = next(
+                    (k for k in ['Total Revenue', 'Revenue', 'Total Revenues']
+                     if k in qfin.index), None
+                )
+                if rev_key:
+                    rev = qfin.loc[rev_key].dropna().sort_index()
+                    for i in range(1, min(4, len(rev))):
+                        prev = float(rev.iloc[-(i + 1)])
+                        curr = float(rev.iloc[-i])
+                        if prev != 0:
+                            rev_q_growth.append(round((curr - prev) / abs(prev), 4))
+                    if len(rev_q_growth) >= 2:
+                        rev_trend = 'accelerating' if rev_q_growth[0] > rev_q_growth[1] else 'decelerating'
+                    elif rev_q_growth:
+                        rev_trend = 'positive' if rev_q_growth[0] > 0 else 'negative'
+        except Exception:
+            pass
+
+        # EPS beat/miss history (last 3 quarters)
+        eps_surprise_pct = None
+        eps_beat_rate    = None
+        try:
+            hist = t.earnings_history
+            if hist is not None and not hist.empty:
+                need = {'epsEstimate', 'epsActual'}
+                if need.issubset(hist.columns):
+                    recent = hist.dropna(subset=list(need)).tail(3)
+                    if not recent.empty:
+                        beats = int((recent['epsActual'] > recent['epsEstimate']).sum())
+                        eps_beat_rate = round(beats / len(recent), 2)
+                        last = recent.iloc[-1]
+                        est  = float(last['epsEstimate'])
+                        if est != 0:
+                            eps_surprise_pct = round(
+                                (float(last['epsActual']) - est) / abs(est), 4
+                            )
+        except Exception:
+            pass
+
         return {
             'earnings_soon':     earnings_soon,
             'eps_positive':      trailing_eps is None or trailing_eps > -1.0,
@@ -240,6 +299,13 @@ def _fetch_one_fundamental(symbol: str) -> dict:
             'sector':            sector,
             'name':              name,
             'market_cap':        market_cap,
+            'analyst_target':    analyst_target,
+            'analyst_count':     analyst_count,
+            'analyst_rating':    analyst_rating,
+            'rev_q_growth':      rev_q_growth,
+            'rev_trend':         rev_trend,
+            'eps_surprise_pct':  eps_surprise_pct,
+            'eps_beat_rate':     eps_beat_rate,
         }
     except Exception:
         return default
@@ -339,12 +405,19 @@ def run_screener(top_n: int = 20, force_refresh: bool = False) -> list[dict]:
         if fund.get('short_disqualify', False):
             continue
         sig.update({
-            'earnings_soon': fund.get('earnings_soon', False),
-            'short_float':   fund.get('short_float', 0.0),
-            'short_flag':    fund.get('short_flag', False),
-            'sector':        fund.get('sector', 'Unknown'),
-            'name':          fund.get('name', sym),
-            'market_cap':    fund.get('market_cap', 0),
+            'earnings_soon':    fund.get('earnings_soon', False),
+            'short_float':      fund.get('short_float', 0.0),
+            'short_flag':       fund.get('short_flag', False),
+            'sector':           fund.get('sector', 'Unknown'),
+            'name':             fund.get('name', sym),
+            'market_cap':       fund.get('market_cap', 0),
+            'analyst_target':   fund.get('analyst_target'),
+            'analyst_count':    fund.get('analyst_count'),
+            'analyst_rating':   fund.get('analyst_rating'),
+            'rev_q_growth':     fund.get('rev_q_growth', []),
+            'rev_trend':        fund.get('rev_trend'),
+            'eps_surprise_pct': fund.get('eps_surprise_pct'),
+            'eps_beat_rate':    fund.get('eps_beat_rate'),
         })
         qualified.append(sig)
 

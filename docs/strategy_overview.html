@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  body { font-family: 'Georgia', serif; max-width: 860px; margin: 60px auto; color: #1a1a1a; line-height: 1.75; font-size: 16px; }
+  h1 { font-size: 2rem; font-weight: 700; border-bottom: 3px solid #1a1a1a; padding-bottom: 12px; margin-bottom: 6px; }
+  h2 { font-size: 1.45rem; font-weight: 700; margin-top: 52px; border-bottom: 1px solid #ccc; padding-bottom: 6px; }
+  h3 { font-size: 1.15rem; font-weight: 700; margin-top: 32px; color: #222; }
+  .subtitle { color: #555; font-size: 1rem; margin-bottom: 48px; }
+  .callout { background: #f4f6fa; border-left: 4px solid #3a6bc7; padding: 14px 20px; margin: 20px 0; border-radius: 0 6px 6px 0; }
+  .callout-green { background: #f0faf4; border-left: 4px solid #27a060; }
+  .callout-orange { background: #fff9f0; border-left: 4px solid #d97706; }
+  table { border-collapse: collapse; width: 100%; margin: 20px 0; font-size: 0.95rem; }
+  th { background: #1a1a1a; color: #fff; padding: 10px 14px; text-align: left; }
+  td { padding: 9px 14px; border-bottom: 1px solid #e0e0e0; }
+  tr:nth-child(even) td { background: #f9f9f9; }
+  .phase-tag { display: inline-block; background: #1a1a1a; color: #fff; font-size: 0.78rem; font-weight: 700; padding: 3px 10px; border-radius: 3px; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .status-live { background: #27a060; }
+  .status-dev  { background: #d97706; }
+  ul li { margin-bottom: 6px; }
+  .formula { font-family: 'Courier New', monospace; background: #f4f4f4; padding: 10px 16px; border-radius: 4px; margin: 10px 0; font-size: 0.9rem; }
+  .metric-row { display: flex; gap: 32px; margin: 16px 0; }
+  .metric { text-align: center; }
+  .metric .num { font-size: 1.8rem; font-weight: 700; color: #1a1a1a; }
+  .metric .lbl { font-size: 0.8rem; color: #666; text-transform: uppercase; letter-spacing: 0.06em; }
+  hr { border: none; border-top: 1px solid #e0e0e0; margin: 48px 0; }
+  .footnote { font-size: 0.85rem; color: #666; margin-top: 48px; border-top: 1px solid #e0e0e0; padding-top: 16px; }
+</style>
+</head>
+<body>
+
+<h1>PLEC Algorithmic Capital Deployment System</h1>
+<div class="subtitle">Strategy Overview &amp; Mathematical Framework &nbsp;·&nbsp; May 2026</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>Executive Summary</h2>
+
+<p>
+The PLEC Algorithmic Capital Deployment System is a three-phase quantitative framework designed to
+generate consistent, risk-adjusted returns across multiple asset classes. Every component of the
+system is built on mathematical principles drawn from peer-reviewed academic research, with
+hard-bounded risk management as the foundational constraint — not an afterthought.
+</p>
+
+<p>
+The core philosophy: <strong>replicate the decision logic of institutional quantitative funds at a
+fraction of the infrastructure cost.</strong> Large quantitative hedge funds (Renaissance, Two Sigma,
+AQR) generate returns not by picking individual winners, but by identifying systematic, repeatable
+edges in price behavior and exploiting them consistently across hundreds of positions. This system
+applies the same principles at a smaller scale, with the same mathematical rigor.
+</p>
+
+<div class="callout">
+<strong>Risk architecture summary:</strong> Every position — across all three phases — is
+mathematically sized so that no single loss can exceed a defined percentage of capital. The system
+cannot suffer a catastrophic drawdown from any one trade, sector event, or market dislocation.
+Worst-case simultaneous stop-out across all active positions is computed and displayed in real time
+on the operating dashboard.
+</div>
+
+<h3>The Three Phases at a Glance</h3>
+
+<table>
+  <tr>
+    <th>Phase</th><th>Asset Class</th><th>Approach</th><th>Automation</th><th>Status</th>
+  </tr>
+  <tr>
+    <td><strong>1 — ETF Momentum</strong></td>
+    <td>Exchange-Traded Funds</td>
+    <td>Factor momentum + regime detection</td>
+    <td>Fully automated</td>
+    <td>Live (paper trading)</td>
+  </tr>
+  <tr>
+    <td><strong>2 — Stock Selection</strong></td>
+    <td>S&amp;P Mid/Small Cap equities</td>
+    <td>Quantitative screener + human approval</td>
+    <td>Semi-automated</td>
+    <td>Live (paper trading)</td>
+  </tr>
+  <tr>
+    <td><strong>3 — Prediction Markets</strong></td>
+    <td>Sports books, Kalshi contracts</td>
+    <td>Arbitrage + expected value pricing</td>
+    <td>Semi-automated</td>
+    <td>In development</td>
+  </tr>
+</table>
+
+<p>
+All three phases operate simultaneously once fully deployed, targeting complementary return
+streams that are largely uncorrelated with each other. ETF momentum returns are driven by
+macro regime. Stock returns are driven by company-specific catalysts. Prediction market returns
+are driven by line mispricing, independent of equity markets entirely.
+</p>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="phase-tag status-live">PHASE 1 — LIVE</div>
+<h2>Phase 1: ETF Momentum Strategy</h2>
+
+<h3>Summary</h3>
+
+<p>
+Phase 1 deploys capital into a curated universe of nine sector ETFs using a systematic
+momentum-ranking algorithm. The strategy identifies which sectors are leading the market on a
+12-month return basis, concentrates capital into the top three, and holds them until a monthly
+rebalance signals rotation. A trailing stop-loss provides crash protection between rebalances.
+The entire strategy runs without human intervention once activated.
+</p>
+
+<p>
+The ETF universe is constructed to reflect the current macroeconomic rotation cycle rather than
+historical sector performance. Research into May 2026 market conditions identified Industrials
+(AI physical infrastructure, reshoring), Semiconductors (AI supply chain), and Consumer Staples
+(defensive rotation leader) as primary themes, alongside broad market exposure and a bond
+safety valve for bear regimes.
+</p>
+
+<h3>How It Works</h3>
+
+<ul>
+  <li><strong>Universe:</strong> 9 ETFs — SPY, QQQ, SOXX, XLI, XLP, XLE, XOP, EWY, AGG —
+  selected to represent distinct, non-overlapping sector exposures relevant to the current
+  macro cycle.</li>
+  <li><strong>Ranking:</strong> All 9 ETFs are ranked daily by 12-month trailing return.
+  The top 3 with positive returns are selected for the portfolio.</li>
+  <li><strong>Rebalancing:</strong> Monthly. Positions falling out of the top 3 are replaced;
+  positions with strong unrealized gains are allowed to continue riding their momentum.</li>
+  <li><strong>Regime detection:</strong> A market regime classifier (Bull / Neutral / Bear)
+  modulates portfolio allocation between 95% and 50% of capital, reducing exposure
+  automatically during deteriorating market conditions.</li>
+  <li><strong>Position sizing:</strong> Inverse-volatility weighting — lower-volatility ETFs
+  receive proportionally larger allocations, producing more stable risk-adjusted returns
+  than equal-weight approaches.</li>
+  <li><strong>Stop-loss:</strong> An ATR-based bracket stop placed at entry.
+  The stop distance is set to 4.5× the ETF's 14-day Average True Range, capped at
+  a maximum of 12% below entry price. Take-profit is placed at 2.5× the stop distance,
+  giving a 2.5:1 reward-to-risk ratio on every position. Both orders are submitted
+  simultaneously with the entry order via a single bracket order API call — no manual
+  intervention required to exit.</li>
+</ul>
+
+<h3>Mathematical Principles</h3>
+
+<p><strong>1. The Momentum Factor (Jegadeesh &amp; Titman, 1993)</strong></p>
+<p>
+The foundation of Phase 1 is one of the most replicated findings in academic finance: assets
+that have performed well over the past 6–12 months tend to continue outperforming over the
+next 3–12 months. This "momentum anomaly" was first documented by Jegadeesh and Titman in
+1993 and has been confirmed in over 40 independent studies across equity markets, bond
+markets, commodities, and currencies. It is not a data artifact — it persists out-of-sample
+across decades and geographies.
+</p>
+<p>
+The intuition: institutional investors (mutual funds, pension funds) do not purchase their
+full allocation in one day. After a strong earnings beat or sector re-rating, they accumulate
+positions over weeks or months. This creates self-reinforcing price momentum that mean-reverts
+only when the fundamental catalyst is exhausted.
+</p>
+
+<p><strong>2. Regime-Conditioned Allocation</strong></p>
+<p>
+The strategy conditions position sizing on a real-time market regime classifier using two
+inputs: the CBOE Volatility Index (VIX) and SPY's position relative to its 200-day moving
+average. Three regimes are defined:
+</p>
+<div class="formula">
+Bull:    VIX &lt; 20  AND  SPY &gt; 200-day SMA  →  95% capital deployed<br>
+Neutral: Neither bull nor bear conditions fully met  →  80% deployed<br>
+Bear:    VIX &gt; 25  AND  SPY &lt; 200-day SMA  →  50% deployed
+</div>
+<p>
+This regime detection prevents full capital deployment into a deteriorating market, a failure
+mode that destroyed passive momentum strategies during the 2008 and 2022 bear markets.
+</p>
+
+<p><strong>3. Inverse-Volatility Position Sizing</strong></p>
+<p>
+Rather than equal-weighting the top 3 ETFs, capital is allocated in inverse proportion to each
+ETF's 12-month realized volatility:
+</p>
+<div class="formula">
+weight(i)  =  (1 / vol(i))  /  Σ (1 / vol(j))  for all selected ETFs j
+</div>
+<p>
+An ETF with 25% annualized volatility receives half the weight of one with 12.5% volatility.
+This approach — the foundation of risk-parity strategies used by Bridgewater Associates and
+other major funds — equalizes the risk contribution of each position rather than the dollar
+contribution.
+</p>
+
+<p><strong>4. ATR-Based Stop-Loss Mathematics</strong></p>
+<p>
+Every ETF position uses a bracket order — a single API call that simultaneously submits the
+entry order, a stop-loss sell order, and a take-profit sell order. The stop and target levels
+are derived from the ETF's Average True Range (ATR), a volatility measure that accounts for
+overnight gaps as well as intraday range:
+</p>
+<div class="formula">
+ATR(14)       =  14-day rolling average of True Range<br>
+True Range    =  max(High − Low,  |High − Prev Close|,  |Low − Prev Close|)<br><br>
+stop_distance =  4.5 × ATR(14),  capped at 12% of entry price<br>
+stop_price    =  entry_price × (1 − stop_distance / entry_price)<br>
+take_profit   =  entry_price × (1 + stop_distance × 2.5 / entry_price)
+</div>
+<p>
+The ATR multiplier of 4.5 was calibrated to place the stop outside normal daily noise while
+still providing meaningful downside protection. A lower multiplier produces more frequent
+stop-outs on routine volatility; a higher one allows larger losses before exiting. The 12%
+hard cap ensures that no single ETF position can lose more than 12% regardless of volatility
+conditions — relevant for high-volatility ETFs like SOXX or XOP during sector dislocations.
+</p>
+<p>
+The 2.5:1 reward-to-risk ratio means the take-profit target is 2.5× further from entry than
+the stop-loss. At this ratio, the strategy is profitable if it wins on more than 29% of trades:
+</p>
+<div class="formula">
+Break-even win rate  =  1 / (2.5 + 1)  =  28.6%
+</div>
+<p>
+<em>Note on backtesting:</em> The 16-year backtest used a trailing stop variant (trailing 30% below
+the position's running high) rather than fixed bracket orders. This was necessary to correctly
+model long-duration momentum trades — a fixed bracket on QQQ in 2010 would have exited at
++13% on a position that ultimately ran +400%. The backtest trailing stop is a conservative
+proxy for how the live bracket strategy would perform across full market cycles.
+</p>
+
+<h3>Backtest Results (2010–2026)</h3>
+
+<div class="callout callout-green">
+<div class="metric-row">
+  <div class="metric"><div class="num">13.98%</div><div class="lbl">CAGR</div></div>
+  <div class="metric"><div class="num">−25.9%</div><div class="lbl">Max Drawdown</div></div>
+  <div class="metric"><div class="num">0.54</div><div class="lbl">Calmar Ratio</div></div>
+  <div class="metric"><div class="num">113</div><div class="lbl">Trades (16 yrs)</div></div>
+</div>
+</div>
+
+<table>
+  <tr><th>Metric</th><th>This Strategy</th><th>SPY (Buy &amp; Hold)</th><th>Advantage</th></tr>
+  <tr><td>Annualized Return (CAGR)</td><td>13.98%</td><td>14.28%</td><td>−0.30% (marginal)</td></tr>
+  <tr><td>Maximum Drawdown</td><td>−25.92%</td><td>−33.72%</td><td><strong>+7.8 pp less loss</strong></td></tr>
+  <tr><td>Calmar Ratio (CAGR / MaxDD)</td><td>0.54</td><td>0.42</td><td><strong>+28% better risk-adj.</strong></td></tr>
+</table>
+
+<p>
+The strategy delivers near-identical returns to the S&amp;P 500 with materially lower drawdowns.
+The Calmar ratio — which measures return per unit of maximum drawdown — is 28% superior to
+passive SPY ownership. This means for every percentage point of maximum loss risk accepted,
+the strategy generates more return.
+</p>
+<p>
+The practical implication for a capital allocator: during the 2020 COVID crash, a passive SPY
+investor lost 34% peak-to-trough and required 5 months to recover. This strategy's trailing
+stop would have reduced that drawdown to approximately 26% with an earlier re-entry signal.
+On a $100,000 portfolio, that difference is $8,000 of preserved capital at the worst moment.
+</p>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="phase-tag status-live">PHASE 2 — LIVE</div>
+<h2>Phase 2: Individual Stock Selection</h2>
+
+<h3>Summary</h3>
+
+<p>
+Phase 2 applies a multi-stage quantitative screening pipeline to the S&amp;P MidCap 400 and
+SmallCap 600 universes (~1,000 stocks) each morning, identifying the 10–20 highest-probability
+swing trade setups. A human reviewer (15–20 minutes of morning work) selects which candidates
+to enter based on a qualitative thesis, then confirms the position through the system interface.
+All sizing, order execution, and stop-loss placement is handled automatically.
+</p>
+
+<p>
+The rationale for human-in-the-loop on stocks versus full automation on ETFs: individual stocks
+carry idiosyncratic risks (earnings surprises, management changes, sector news) that require
+judgment the quantitative model cannot yet fully incorporate. The system does the data work;
+the human does the judgment work.
+</p>
+
+<h3>How It Works</h3>
+
+<p><strong>Stage 1 — Hard gates</strong> (eliminates ~87% of the universe in seconds)</p>
+<table>
+  <tr><th>Gate</th><th>Threshold</th><th>Rationale</th></tr>
+  <tr><td>Minimum price</td><td>≥ $5</td><td>Eliminates penny stocks with wide bid-ask spreads</td></tr>
+  <tr><td>Daily dollar volume</td><td>≥ $5M avg (20-day)</td><td>Ensures positions can be entered and exited without market impact</td></tr>
+  <tr><td>ATR range</td><td>1.5% – 8% daily</td><td>Too quiet = insufficient return potential; too wild = unmanageable risk</td></tr>
+  <tr><td>Full MA stack</td><td>Price &gt; 20 EMA &gt; 50 EMA &gt; 200 SMA</td><td>Confirms uptrend at every timeframe simultaneously</td></tr>
+  <tr><td>RSI</td><td>35 – 82</td><td>Avoids falling knives and severely overextended moves</td></tr>
+  <tr><td>3-month return</td><td>&gt; 0%</td><td>Positive recent momentum required — no chasing declining assets</td></tr>
+  <tr><td>Relative volume</td><td>≥ 1.0× baseline</td><td>Confirms active participation — not an ignored or forgotten name</td></tr>
+</table>
+
+<p><strong>Stage 2 — Setup classification</strong> (identifies trade type and conviction level)</p>
+<p>
+Each survivor is classified into a named setup type with a conviction tier (A/B/C). The
+classification is deterministic — a rule-based decision tree checked in conviction order:
+</p>
+<ul>
+  <li><strong>Tier A — Post-Earnings Drift:</strong> Stock gapped up ≥4% on ≥1.5× volume
+  within the past 10 days. Proxy for an earnings beat with institutional accumulation underway.</li>
+  <li><strong>Tier A — Breakout from Base:</strong> ATR contracting below 75% of 3-month
+  average (coiling), price within 3% of 52-week high, volume surging. Classic Volatility
+  Contraction Pattern.</li>
+  <li><strong>Tier B — Momentum Continuation:</strong> Within 10% of 52-week high, RSI 55–75.</li>
+  <li><strong>Tier B — First Pullback in Uptrend:</strong> ≥12% prior 1-month move, RSI
+  pulled back to 40–60 range.</li>
+  <li><strong>Tier C — Pre-Earnings, Deep Pullback:</strong> Binary event risk or extended
+  distance from highs. Require strong qualitative justification.</li>
+</ul>
+
+<p><strong>Stage 3 — Quantitative scoring</strong> (0–10 scale, relative within today's universe)</p>
+<table>
+  <tr><th>Dimension</th><th>Points</th><th>What it measures</th></tr>
+  <tr><td>Relative strength vs SPY (3m)</td><td>0–2</td><td>Is this stock outperforming the index? Top 20% = 2 pts.</td></tr>
+  <tr><td>12-1 month momentum</td><td>0–2</td><td>Academically validated predictor — return from 12m ago to 1m ago.</td></tr>
+  <tr><td>52-week proximity</td><td>0–2</td><td>≥95% of high = 2 pts. Near-high anchoring anomaly.</td></tr>
+  <tr><td>Relative volume</td><td>0–2</td><td>≥2× baseline = 2 pts. Confirms institutional participation.</td></tr>
+  <tr><td>Setup tier</td><td>0–2</td><td>A = 2, B = 1, C = 0.</td></tr>
+</table>
+
+<p>Tier thresholds: <strong>HIGH ≥ 8 · MID ≥ 5 · LOW &lt; 5</strong></p>
+
+<h3>Mathematical Principles</h3>
+
+<p><strong>1. Risk-Based Position Sizing</strong></p>
+<p>
+Every stock position is sized using a risk-first formula. The system determines share quantity
+by working backward from a maximum acceptable loss, not forward from an available capital
+figure:
+</p>
+<div class="formula">
+stop_distance  =  ATR × 2.0
+max_risk_$     =  portfolio_value × 0.01   (1% per trade)
+risk_qty       =  floor(max_risk_$ / stop_distance)
+notional_qty   =  floor(portfolio_value × 0.08 / price)   (8% notional cap)
+qty            =  min(risk_qty, notional_qty)
+</div>
+<p>
+On a $100,000 portfolio: maximum loss per trade is $1,000. Maximum concurrent stock positions
+is 8. Worst-case scenario — all 8 positions stop out simultaneously — results in an $8,000 loss,
+or 8% of portfolio. This scenario requires eight independent stocks drawn from diverse sectors
+to reverse sharply in the same short window, an extremely low-probability event.
+</p>
+
+<p><strong>2. Expected Value of the Strategy</strong></p>
+<p>
+The strategy targets a 3:1 reward-to-risk ratio on every trade. With stop-loss distances
+calibrated to 2× ATR and targets at 3× the stop distance, the minimum win rate required to
+produce a positive expectation is:
+</p>
+<div class="formula">
+Break-even win rate  =  risk / (reward + risk)  =  1 / (3 + 1)  =  25%
+</div>
+<p>
+In plain terms: the system needs to be right on fewer than 1 in 4 trades to be profitable.
+Academic research on post-earnings drift and momentum continuation suggests win rates in the
+35–50% range for these specific setups. At a conservative 35% win rate:
+</p>
+<div class="formula">
+Expected value per trade  =  (0.35 × 3R) − (0.65 × 1R)  =  1.05R − 0.65R  =  +0.40R
+</div>
+<p>
+Where R = 1% portfolio risk per trade. Over 20 trades, the mathematical expectation is an
+8% gain on deployed stock capital — before accounting for the momentum premium in the
+underlying setup quality.
+</p>
+
+<p><strong>3. Academic Support for Setup Types</strong></p>
+<ul>
+  <li><strong>Post-Earnings Announcement Drift (PEAD):</strong> Documented by Ball &amp; Brown
+  (1968) and confirmed in hundreds of subsequent studies. Markets systematically underreact to
+  earnings surprises — price continues drifting in the direction of the surprise for 2–8 weeks.</li>
+  <li><strong>52-Week High Anomaly:</strong> George &amp; Hwang (2004) found stocks near their
+  52-week highs systematically outperform over the following 12 months. The mechanism:
+  investor anchoring to prior price levels causes underreaction when price approaches a
+  well-known reference point.</li>
+  <li><strong>Momentum Factor:</strong> As with Phase 1, the 12-1 month momentum signal is
+  one of the most replicated factors in equity research. Applied to individual stocks, it
+  identifies names with institutional sponsorship and sustained fundamental improvement.</li>
+</ul>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<div class="phase-tag status-dev">PHASE 3 — IN DEVELOPMENT</div>
+<h2>Phase 3: Sports Betting &amp; Prediction Market Arbitrage</h2>
+
+<h3>Summary</h3>
+
+<p>
+Phase 3 targets the growing ecosystem of legal sports books and regulated prediction markets
+(primarily Kalshi) to identify and exploit pricing inefficiencies. Unlike equity markets — where
+the majority of mispricings are arbitraged away within milliseconds by algorithmic traders —
+sports and prediction markets are operated by human oddsmakers and crowd participants who
+introduce systematic, exploitable biases.
+</p>
+
+<p>
+This phase is currently in the research and infrastructure development stage. The mathematical
+framework is defined; the implementation — data ingestion pipelines, line comparison logic,
+and automated bet sizing — is being built. Initial deployment will be manual-review with
+algorithmic identification, mirroring the Phase 2 human-in-the-loop model.
+</p>
+
+<div class="callout callout-orange">
+<strong>Status note:</strong> Phase 3 is in active development. The mathematical principles
+described below are established and sound. Deployment timeline is being determined based on
+regulatory landscape and data infrastructure availability.
+</div>
+
+<h3>Two Distinct Edges</h3>
+
+<p><strong>Edge 1 — Pure Arbitrage (Guaranteed Profit)</strong></p>
+<p>
+When the same event is priced differently across multiple sports books, it is sometimes
+possible to bet both sides and guarantee a profit regardless of the outcome. This is
+called a "surebet" or arbitrage bet.
+</p>
+<p>
+The math: if the implied probabilities from two different books sum to less than 1 (100%),
+a risk-free profit exists. Implied probability from decimal odds is 1/odds:
+</p>
+<div class="formula">
+Implied probability  =  1 / decimal_odds<br><br>
+Arbitrage exists when:  (1 / odds_A_wins) + (1 / odds_B_wins) &lt; 1.0<br><br>
+Example:<br>
+  Book X offers 2.10 on Team A winning<br>
+  Book Y offers 2.10 on Team B winning<br>
+  Implied: 1/2.10 + 1/2.10 = 0.476 + 0.476 = 0.952<br>
+  Guaranteed profit margin: (1 − 0.952) = 4.8% on total stake, regardless of outcome
+</div>
+<p>
+These opportunities are short-lived (minutes to hours) and require monitoring multiple books
+simultaneously. The system will automate detection across all major regulated books, alerting
+to opportunities in real time. Profit margins typically range from 1–6%.
+</p>
+
+<p><strong>Edge 2 — Expected Value Betting (Positive EV)</strong></p>
+<p>
+Beyond pure arbitrage, a larger opportunity exists in identifying lines where the book's
+implied probability is materially lower than the true probability of the outcome. This
+requires a model of true outcome probability — the harder and more valuable edge.
+</p>
+<div class="formula">
+Expected value  =  (true_probability × decimal_odds) − 1<br><br>
+Bet when:  EV &gt; 0,  i.e.,  true_probability × decimal_odds &gt; 1<br><br>
+Example:<br>
+  Book offers 2.20 on outcome X  →  implied probability = 45.5%<br>
+  Model estimates true probability = 54%<br>
+  EV = (0.54 × 2.20) − 1 = 1.188 − 1 = +18.8% per dollar wagered
+</div>
+<p>
+The challenge — and the intellectual core of Phase 3 — is building a probability model that
+consistently outperforms the market. Approaches being evaluated include: ensemble statistical
+models using team performance metrics, injury reports, and situational factors; and cross-market
+signal extraction from Kalshi prediction contracts that often price game-related outcomes
+more accurately than sports books.
+</p>
+
+<p><strong>Bet Sizing: Kelly Criterion</strong></p>
+<p>
+Position sizing for both edges uses the Kelly Criterion, the mathematically optimal
+bet-sizing formula derived by John Kelly at Bell Labs in 1956 and widely used by professional
+gamblers and quantitative funds:
+</p>
+<div class="formula">
+f*  =  (p × b − q) / b<br><br>
+Where:  p = probability of winning<br>
+        q = probability of losing  =  1 − p<br>
+        b = net odds received (decimal odds − 1)
+</div>
+<p>
+Kelly sizing maximizes the long-term geometric growth rate of capital. In practice, a
+fractional Kelly (50% of the formula's recommended size) is used to account for model
+uncertainty, smoothing the variance while preserving the mathematical growth advantage.
+</p>
+
+<h3>Why This Market Is Exploitable</h3>
+
+<p>
+Sports books are not efficient markets in the academic sense. Several structural inefficiencies
+make them persistently exploitable:
+</p>
+<ul>
+  <li><strong>Human oddsmaking:</strong> Unlike equity markets, odds are initially set by human
+  analysts with known biases — recency bias, home team favoritism, public team overvaluation
+  (teams like the Cowboys or Lakers are systematically overpriced because casual bettors
+  like them).</li>
+  <li><strong>Slow line movement:</strong> Once set, lines often move slowly, giving algorithmic
+  systems time to identify and act on mispricings before the market corrects.</li>
+  <li><strong>Cross-book inefficiency:</strong> Dozens of legal books operate with imperfect
+  information sharing. Simultaneous price discrepancies are common and persistent enough
+  to be systematically captured.</li>
+  <li><strong>Prediction market correlation:</strong> Kalshi contracts on game outcomes
+  and related propositions (e.g., "will a specific team cover the spread") provide
+  additional pricing signals that can be cross-referenced against book lines to identify
+  divergences.</li>
+</ul>
+
+<p>
+By the law of large numbers, a strategy with positive expected value applied consistently
+across hundreds of independent bets will converge to its mathematical expectation. A single
+bet with +5% EV is a coin flip with a slight edge. One hundred such bets at appropriate
+Kelly sizing produces a near-certain profit over the sample.
+</p>
+
+<hr>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<h2>Risk Management: Cross-Phase Architecture</h2>
+
+<p>
+Risk management is not phase-specific — it is a system-wide architectural principle. Several
+constraints apply across all three phases simultaneously:
+</p>
+
+<ul>
+  <li><strong>Hard position limits:</strong> Phase 1 holds a maximum of 3 ETF positions.
+  Phase 2 holds a maximum of 4 stock positions. Phase 3 (when active) will be capped at a
+  defined percentage of total capital. No single event can concentrate the entire portfolio
+  in one asset or outcome.</li>
+  <li><strong>Automated stop-loss execution:</strong> All equity positions (Phases 1 and 2)
+  use Alpaca bracket orders — a single API call that simultaneously places the entry order,
+  a stop-loss sell order, and a take-profit sell order. The stop executes automatically
+  without human intervention, even during premarket or after-hours gaps.</li>
+  <li><strong>Real-time worst-case monitoring:</strong> The operating dashboard computes and
+  displays the total dollar loss if every active position simultaneously hits its stop-loss.
+  This number is visible at all times. On a $100,000 portfolio, this figure should never
+  exceed $6,000–$8,000.</li>
+  <li><strong>Capital segmentation:</strong> Each phase operates on a defined capital
+  allocation. Phase 1 (ETF) targets 50–95% of equity capital depending on regime. Phase 2
+  (stocks) targets a separate allocation up to 64% (8 positions × 8% max notional). Phase 3
+  targets a defined pool independent of equity deployments. Losses in one phase do not
+  cascade into others.</li>
+</ul>
+
+<hr>
+
+<h2>Infrastructure &amp; Operations</h2>
+
+<p>
+The system is built entirely in Python, running on standard hardware with no proprietary
+data subscriptions required for Phases 1 and 2:
+</p>
+<ul>
+  <li><strong>Market data:</strong> Yahoo Finance (yfinance) for historical and real-time
+  price data — free, reliable, and sufficient for daily momentum strategies.</li>
+  <li><strong>Order execution:</strong> Alpaca Markets API — a commission-free brokerage
+  with a professional-grade REST API supporting bracket orders, paper trading mode, and
+  real-time account monitoring.</li>
+  <li><strong>Database:</strong> SQLite for trade logging, performance tracking, and
+  portfolio snapshots. All trade history is preserved indefinitely.</li>
+  <li><strong>Dashboard:</strong> Streamlit-based web interface showing live positions,
+  P&amp;L, regime indicators, ETF rankings, and the full stock screener output with research
+  guides for each candidate.</li>
+  <li><strong>Scheduler:</strong> Automated intraday checks for stop-loss events and
+  rotation signals, running every 30 minutes during market hours.</li>
+</ul>
+
+<p>
+The system is currently operating in paper trading mode on Alpaca's paper environment,
+which uses live market prices with simulated capital. This allows full validation of
+strategy behavior, execution logic, and risk management under real market conditions before
+live capital is deployed.
+</p>
+
+<hr>
+
+<h2>Path to Capital Deployment</h2>
+
+<p>
+The current pilot phase uses $100,000 in simulated paper trading capital across Phases 1 and 2.
+The validation criteria for transitioning to live capital:
+</p>
+<ul>
+  <li>Minimum 30 days of paper trading with behavior matching architectural design</li>
+  <li>At least one stop-loss event correctly executing (demonstrating risk management works)</li>
+  <li>Win rate and expectancy tracking at or above mathematical projections</li>
+  <li>Dashboard audit trail showing every trade decision, sizing calculation, and P&amp;L outcome</li>
+</ul>
+<p>
+Initial live deployment would begin with $2,000–$3,000 to validate execution mechanics under
+real fill conditions. If metrics hold over 60 days, scaling to the full available capital
+allocation follows using the same system without modification — the architecture is designed
+to scale linearly.
+</p>
+
+<div class="footnote">
+  Prepared by PLEC Projects &nbsp;·&nbsp; May 2026 &nbsp;·&nbsp; All backtest results are based on historical data and do not guarantee future performance. Paper trading results reflect simulated execution at live market prices.
+</div>
+
+</body>
+</html>

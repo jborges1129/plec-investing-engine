@@ -5,37 +5,31 @@ from shared.data import (
     ETF_UNIVERSE, BULL_ETFS, BEAR_ETFS
 )
 
-# ATR × 3 stop: requires a 3-sigma-equivalent intraday move to trigger.
-# ATR₁₄ ≈ typical daily range. At 3×ATR, stops survive normal 1-2σ intraday noise
-# while catching genuine trend reversals. Engineering analogy: a 3× factor of safety.
-ATR_MULTIPLIER = 3.0
+TRAIL_PCT = 0.30  # trailing stop: 30% below the position's running high
 
-# 2.5:1 reward-to-risk: requires only a 29% win rate for positive expected value.
-# Antonacci Dual Momentum (2014) and CXO SACEMS data show ETF momentum win rates
-# of 55-65%. At 60%: E[per trade] = 0.60×2.5 − 0.40×1.0 = 1.10 per unit of stop risk.
+# Kept for live Alpaca bracket order construction in execute.py
+ATR_MULTIPLIER    = 4.5
 REWARD_RISK_RATIO = 2.5
+MAX_STOP_PCT      = 0.12
 
-# 7% hard cap: bounds single-trade loss to $7 per $100 invested regardless of ATR.
-# With regime allocation ≤50% and inverse-vol sizing across ≤5 positions,
-# simultaneous stop-out of all positions is bounded at roughly 3–4% of total portfolio.
-MAX_STOP_PCT = 0.07
+MAX_POSITIONS = 3  # top 3 ETFs by 12m momentum
 
-MAX_POSITIONS = 5  # max concurrent ETF positions; limits concentration risk
+# Antonacci absolute momentum filter: 0.0 allows AGG (bonds) to qualify in flight-to-safety
+# environments where bonds have flat/slightly positive returns.
+QUALITY_FLOOR_12M = 0.01  # require positive 12m momentum (Antonacci absolute filter)
 
-# Absolute momentum filter (Antonacci Dual Momentum): only hold ETFs above their own
-# price 3 months ago. Set to 1% (not 0%) to exclude near-zero-momentum ETFs — a
-# return of <1% over 3 months has no actionable signal and falls within noise.
-QUALITY_FLOOR_3M = 0.01
+MIN_ALLOCATION_USD = 200.0
 
-MIN_ALLOCATION_USD = 200.0  # skip any position too small to matter
+# Trailing stops handle "let winners ride" — monthly rotation should be forced.
+# Set threshold very high to effectively disable winner protection.
+WINNER_PROTECTION_THRESHOLD = 999.0
 
-# Capital deployed scales inversely with market risk. Never fully deployed:
-# even in bull mode, 50% stays in cash/alternatives for dry-powder.
-# Thresholds: bull = VIX<20 AND SPY>200MA; bear = VIX>25 AND SPY<200MA.
+# 95% deployment in bull/neutral — maximize participation in the trend.
+# Bear regime still pulls back to 50% to limit exposure during confirmed downtrends.
 REGIME_ALLOCATION = {
-    'bull': 0.50,
-    'neutral': 0.40,
-    'bear': 0.30,
+    'bull':    0.95,
+    'neutral': 0.80,
+    'bear':    0.50,
 }
 
 # ── 12-Factor Composite Scoring Model ────────────────────────────────────────
@@ -54,18 +48,18 @@ REGIME_ALLOCATION = {
 # (RSI, MACD, regime fit) use fixed thresholds instead, to avoid circular ranking.
 
 FACTOR_WEIGHTS = {
-    'return_3m':        0.22,  # Antonacci primary signal — core 3m cross-sectional momentum
-    'return_1m':        0.10,  # short-term continuation — avoids buying exhausted runs
-    'momentum_accel':   0.08,  # 1m pace vs 3m pace — is momentum building or fading?
-    'alpha_vs_spy':     0.12,  # excess return vs S&P 500 — rewards true alpha, not just beta
-    'sharpe_3m':        0.10,  # risk-adjusted 3m return — same return at lower vol ranks higher
-    'drawdown_score':   0.08,  # max 3m drawdown (inverted) — penalizes choppy/unstable trends
-    'rsi_score':        0.06,  # RSI positioning — sweet spot 45–65, penalize extremes
-    'macd_score':       0.08,  # MACD vs signal line — trend direction confirmation
-    'ma50_score':       0.06,  # % above 50-day MA — near-term trend alignment
-    'ma200_score':      0.04,  # % above 200-day MA — long-term structural trend
-    'vol_score':        0.04,  # relative volume (5d / 20d) — institutional conviction
-    'regime_fit':       0.02,  # macro regime alignment bonus
+    'return_12m':       0.30,  # Antonacci primary signal — 12m cross-sectional momentum (academic consensus)
+    'return_3m':        0.12,  # medium-term continuation — 3m used as secondary confirmation
+    'momentum_accel':   0.08,  # 3m pace vs 12m pace — is momentum building or fading?
+    'alpha_vs_spy':     0.14,  # 12m excess return vs SPY — rewards genuine alpha over beta
+    'sharpe_12m':       0.10,  # risk-adjusted 12m return — same return at lower vol ranks higher
+    'drawdown_score':   0.08,  # max 12m drawdown (inverted) — penalizes choppy/unstable trends
+    'rsi_score':        0.04,  # RSI positioning — sweet spot 45–65, penalize extremes
+    'macd_score':       0.06,  # MACD vs signal line — trend direction confirmation
+    'ma50_score':       0.04,  # % above 50-day MA — near-term trend alignment
+    'ma200_score':      0.02,  # % above 200-day MA — long-term structural trend
+    'vol_score':        0.02,  # relative volume (5d / 20d) — institutional conviction
+    'regime_fit':       0.00,  # disabled — regime filtering handled at candidate selection
 }
 # sum(FACTOR_WEIGHTS.values()) == 1.0
 
@@ -127,23 +121,23 @@ def _compute_composite_scores(df: pd.DataFrame, regime: str) -> pd.DataFrame:
     df = df.copy()
 
     # ── Derived factors ───────────────────────────────────────────────────────
-    # Momentum acceleration: annualized 1m pace minus 3m pace (positive = building)
-    df['momentum_accel'] = df['return_1m'] * 4 - df['return_3m']
+    # Momentum acceleration: 3m annualized pace vs 12m pace (positive = building)
+    df['momentum_accel'] = df['return_3m'] * 4 - df['return_12m']
 
-    # Excess return over SPY benchmark
-    df['alpha_vs_spy'] = df['return_3m'] - df.get('spy_return_3m', pd.Series(0.0, index=df.index))
+    # 12m excess return over SPY — rewards genuine alpha over broad market beta
+    df['alpha_vs_spy'] = df['return_12m'] - df.get('spy_return_12m', pd.Series(0.0, index=df.index))
 
-    # Risk-adjusted 3m return (Sharpe proxy: return / quarterly vol estimate)
-    safe_vol = df['realized_vol_3m'].replace(0, float('nan'))
-    df['sharpe_3m'] = df['return_3m'] / (safe_vol / 4.0)
+    # Risk-adjusted 12m return (Sharpe proxy: annual return / annual vol)
+    safe_vol = df['realized_vol_12m'].replace(0, float('nan'))
+    df['sharpe_12m'] = df['return_12m'] / safe_vol
 
     # ── Z-score factors → [0, 100] ────────────────────────────────────────────
+    df['f_return_12m']     = _zscore_to_score(df['return_12m'])
     df['f_return_3m']      = _zscore_to_score(df['return_3m'])
-    df['f_return_1m']      = _zscore_to_score(df['return_1m'])
     df['f_momentum_accel'] = _zscore_to_score(df['momentum_accel'])
     df['f_alpha_vs_spy']   = _zscore_to_score(df['alpha_vs_spy'])
-    df['f_sharpe_3m']      = _zscore_to_score(df['sharpe_3m'].fillna(0))
-    df['f_drawdown_score'] = _zscore_to_score(-df['max_drawdown_3m'])  # invert: less drawdown = better
+    df['f_sharpe_12m']     = _zscore_to_score(df['sharpe_12m'].fillna(0))
+    df['f_drawdown_score'] = _zscore_to_score(-df['max_drawdown_12m'])  # invert: less drawdown = better
     df['f_ma50_score']     = _zscore_to_score(df['pct_above_ma50'])
     df['f_ma200_score']    = _zscore_to_score(df['pct_above_ma200'])
     df['f_vol_score']      = _zscore_to_score(df['volume_ratio'])
@@ -156,17 +150,17 @@ def _compute_composite_scores(df: pd.DataFrame, regime: str) -> pd.DataFrame:
     # ── Weighted composite ────────────────────────────────────────────────────
     w = FACTOR_WEIGHTS
     df['composite_score'] = (
+        df['f_return_12m']     * w['return_12m']     +
         df['f_return_3m']      * w['return_3m']      +
-        df['f_return_1m']      * w['return_1m']       +
-        df['f_momentum_accel'] * w['momentum_accel']  +
-        df['f_alpha_vs_spy']   * w['alpha_vs_spy']    +
-        df['f_sharpe_3m']      * w['sharpe_3m']       +
-        df['f_drawdown_score'] * w['drawdown_score']  +
-        df['f_rsi_score']      * w['rsi_score']       +
-        df['f_macd_score']     * w['macd_score']      +
-        df['f_ma50_score']     * w['ma50_score']      +
-        df['f_ma200_score']    * w['ma200_score']      +
-        df['f_vol_score']      * w['vol_score']       +
+        df['f_momentum_accel'] * w['momentum_accel'] +
+        df['f_alpha_vs_spy']   * w['alpha_vs_spy']   +
+        df['f_sharpe_12m']     * w['sharpe_12m']     +
+        df['f_drawdown_score'] * w['drawdown_score'] +
+        df['f_rsi_score']      * w['rsi_score']      +
+        df['f_macd_score']     * w['macd_score']     +
+        df['f_ma50_score']     * w['ma50_score']     +
+        df['f_ma200_score']    * w['ma200_score']    +
+        df['f_vol_score']      * w['vol_score']      +
         df['f_regime_fit']     * w['regime_fit']
     )
 
@@ -174,12 +168,10 @@ def _compute_composite_scores(df: pd.DataFrame, regime: str) -> pd.DataFrame:
 
 
 def get_etf_candidates(regime: str) -> list[str]:
-    if regime == 'bull':
-        return [s for s in ETF_UNIVERSE if s in BULL_ETFS]
-    elif regime == 'bear':
-        return [s for s in ETF_UNIVERSE if s in BEAR_ETFS]
-    else:
-        return ETF_UNIVERSE
+    # Pure momentum ranking — consider all ETFs regardless of regime.
+    # The 12m return signal naturally rotates toward defensive names (XLP, AGG)
+    # when equity momentum fades, with no hard regime-based exclusions.
+    return list(ETF_UNIVERSE)
 
 
 def build_signal_dashboard(regime_data: dict) -> pd.DataFrame:
@@ -209,7 +201,7 @@ def build_signal_dashboard(regime_data: dict) -> pd.DataFrame:
     # Composite scoring — ranks all candidates by 12-factor model
     df = _compute_composite_scores(df, regime)
 
-    # Sort by composite score; QUALITY_FLOOR_3M is enforced at sizing time
+    # Sort by composite score; QUALITY_FLOOR_12M is enforced at sizing time
     df = df.sort_values('composite_score', ascending=False).reset_index(drop=True)
     df['rank'] = df.index + 1
     return df
@@ -223,7 +215,7 @@ def get_position_sizing(
     deployed_usd: float = 0.0,
 ) -> list[dict]:
     # Hard filter: absolute momentum must be positive before composite score can qualify
-    qualified = df[df['return_3m'] > QUALITY_FLOOR_3M].head(top_n).copy()
+    qualified = df[df['return_12m'] > QUALITY_FLOOR_12M].head(top_n).copy()
     top = qualified[qualified['atr'] > 0]
     if top.empty:
         return []
@@ -376,7 +368,7 @@ def print_intraday_briefing(
         print(f"{'Rank':<5} {'ETF':<6} {'Score':>6} {'1M':>7} {'3M':>7} {'6M':>7} {'RSI':>6} {'MACD':>7} {'Qualifies'}")
         print(f"{'─'*W}")
         for _, row in available.head(10).iterrows():
-            qualifies = 'YES' if row['return_3m'] > QUALITY_FLOOR_3M else 'no (neg 3m)'
+            qualifies = 'YES' if row['return_12m'] > QUALITY_FLOOR_12M else 'no (neg 12m)'
             macd_flag = '▲' if row['macd'] > row['macd_signal'] else '▼'
             print(
                 f"{int(row['rank']):<5} {row['symbol']:<6} "

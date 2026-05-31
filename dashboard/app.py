@@ -742,6 +742,17 @@ def generate_stock_intro_narrative(candidates: list, regime_data: dict) -> str:
     return regime_para + "\n\n" + summary_para
 
 
+def _fmt_analyst_rating(rating: str | None) -> str:
+    mapping = {
+        'strongbuy': '🟢 Strong Buy',
+        'buy':       '🟢 Buy',
+        'hold':      '🟡 Hold',
+        'underperform': '🔴 Underperform',
+        'sell':      '🔴 Sell',
+    }
+    return mapping.get((rating or '').lower().replace(' ', ''), (rating or '').title() or '—')
+
+
 def generate_stock_candidate_narrative(c: dict, news: list) -> str:
     sym      = c.get('symbol', '?')
     name     = (c.get('name') or sym)
@@ -749,6 +760,7 @@ def generate_stock_candidate_narrative(c: dict, news: list) -> str:
     tier     = c.get('setup_tier', 'B')
     sector   = c.get('sector', 'Unknown')
     cap      = c.get('market_cap') or 0
+    price    = c.get('price') or 0
 
     rsi      = c.get('rsi') or 0
     rvol     = c.get('rvol') or 1.0
@@ -763,6 +775,15 @@ def generate_stock_candidate_narrative(c: dict, news: list) -> str:
     earnings_flag = c.get('earnings_soon', False)
     short_pct     = (c.get('short_float') or 0) * 100
     short_flag    = c.get('short_flag', False)
+
+    # Research data
+    analyst_target   = c.get('analyst_target')
+    analyst_count    = c.get('analyst_count')
+    analyst_rating   = c.get('analyst_rating')
+    rev_q_growth     = c.get('rev_q_growth') or []
+    rev_trend        = c.get('rev_trend')
+    eps_surprise_pct = c.get('eps_surprise_pct')
+    eps_beat_rate    = c.get('eps_beat_rate')
 
     tier_labels = {
         'A': 'Tier A — highest conviction (institutional-grade structure)',
@@ -891,7 +912,97 @@ def generate_stock_candidate_narrative(c: dict, news: list) -> str:
         lines += ["", "**Recent headlines:**"]
         lines += news_lines
 
-    lines += ["", "**Research checklist for this setup:**"]
+    # ── Analyst consensus ────────────────────────────────────────────────────
+    analyst_lines = []
+    if analyst_target and price > 0:
+        upside = (analyst_target - price) / price * 100
+        rating_str = _fmt_analyst_rating(analyst_rating)
+        count_str  = f" ({analyst_count} analysts)" if analyst_count else ""
+        color      = '#00d4aa' if upside > 10 else '#ffd700' if upside > 0 else '#ff6b6b'
+        analyst_lines.append(
+            f"**Wall Street consensus{count_str}:** {rating_str}  ·  "
+            f"Target **${analyst_target:.2f}** "
+            f"(<span style='color:{color}'>{upside:+.1f}% from ${price:.2f}</span>)"
+        )
+        if upside > 20:
+            analyst_lines.append(
+                f"  The consensus target implies significant upside — analysts see a re-rating catalyst "
+                f"the market hasn't fully priced. Verify *why*: is it an earnings revision cycle, "
+                f"a new contract, or sector re-rating?"
+            )
+        elif upside < 0:
+            analyst_lines.append(
+                f"  **⚠️ Stock is trading above Wall Street's consensus target.** "
+                f"This means the stock has already exceeded what most analysts modeled. "
+                f"Targets will likely be revised upward after the next earnings beat — "
+                f"but until then, price is running ahead of the thesis."
+            )
+
+    # ── Revenue trend ────────────────────────────────────────────────────────
+    rev_lines = []
+    if rev_q_growth:
+        quarters = []
+        for i, g in enumerate(rev_q_growth[:3]):
+            label = ['Most recent', '1 quarter ago', '2 quarters ago'][i]
+            quarters.append(f"{label}: **{g*100:+.1f}% QoQ**")
+        rev_lines.append("**Revenue growth (quarterly, most recent first):** " + "  ·  ".join(quarters))
+        if rev_trend == 'accelerating':
+            rev_lines.append(
+                f"  Revenue is **accelerating** — growth is speeding up quarter over quarter. "
+                f"Accelerating revenue is one of the strongest fundamental predictors of continued "
+                f"price momentum. Institutions follow this data closely and add to positions when they see it."
+            )
+        elif rev_trend == 'decelerating':
+            rev_lines.append(
+                f"  Revenue growth is **decelerating** — slowing down quarter over quarter. "
+                f"This doesn't disqualify the setup (the gates still passed), but watch whether "
+                f"the next earnings release reverses this trend. Decelerating growth is the #1 "
+                f"catalyst for momentum reversals."
+            )
+
+    # ── EPS beat history ─────────────────────────────────────────────────────
+    eps_lines = []
+    if eps_beat_rate is not None:
+        beat_count = round(eps_beat_rate * 3)
+        if eps_beat_rate >= 0.67:
+            eps_color = '#00d4aa'
+            eps_verdict = f"Beat estimates **{beat_count}/3 recent quarters** — consistent execution above expectations."
+        elif eps_beat_rate >= 0.33:
+            eps_color = '#ffd700'
+            eps_verdict = f"Beat estimates **{beat_count}/3 recent quarters** — mixed track record."
+        else:
+            eps_color = '#ff6b6b'
+            eps_verdict = f"Beat estimates **{beat_count}/3 recent quarters** — has missed more than it beat. Higher bar for entry."
+        eps_lines.append(f"**EPS beat rate:** <span style='color:{eps_color}'>{eps_verdict}</span>")
+        if eps_surprise_pct is not None:
+            surprise_word = "beat" if eps_surprise_pct > 0 else "missed"
+            eps_lines.append(
+                f"  Most recent quarter: **{surprise_word} by {abs(eps_surprise_pct)*100:.1f}%**. "
+                + (
+                    "A beat of this size typically triggers Post-Earnings Announcement Drift (PEAD) — "
+                    "the market re-prices the higher earnings level over the following 2–8 weeks."
+                    if eps_surprise_pct > 0.05 else
+                    "A miss typically creates selling pressure for 1–4 weeks after the report."
+                    if eps_surprise_pct < -0.05 else
+                    "In-line with estimates — no strong drift signal either way."
+                )
+            )
+
+    has_research_data = analyst_lines or rev_lines or eps_lines
+    if has_research_data:
+        lines += ["", "---", "**Fundamental research snapshot:**"]
+        if analyst_lines:
+            lines += analyst_lines
+        if rev_lines:
+            if analyst_lines:
+                lines += [""]
+            lines += rev_lines
+        if eps_lines:
+            if analyst_lines or rev_lines:
+                lines += [""]
+            lines += eps_lines
+
+    lines += ["", "---", "**Research checklist for this setup:**"]
     lines += [f"{i+1}. {tip}" for i, tip in enumerate(tips)]
 
     lines += ["", "**Qualitative investigation (do this before trading):**"]
@@ -1297,31 +1408,34 @@ with tab4:
     st.markdown('<div class="section-title">💼 Open Positions</div>', unsafe_allow_html=True)
 
     if positions:
-        open_trades_db = get_open_trades(module='etf')
-
-        # Group by symbol — one symbol can have multiple bracket orders (separate sessions)
+        # Load all open DB trades (both ETF and stocks modules)
+        all_open_trades = get_open_trades()
         trade_groups: dict[str, list] = defaultdict(list)
-        for t in open_trades_db:
+        for t in all_open_trades:
             trade_groups[t.symbol].append(t)
 
-        # Worst-case simultaneous stop-out: sum (entry - stop) × qty across all open orders
+        # Worst-case simultaneous stop-out across all modules
         worst_case_loss = sum(
             (t.entry_price - t.stop_loss) * t.qty
-            for t in open_trades_db
+            for t in all_open_trades
             if t.entry_price and t.stop_loss
         )
         portfolio_value = acct['portfolio_value'] if acct else 1.0
         worst_case_pct  = worst_case_loss / portfolio_value * 100
 
-        wc1, wc2, wc3 = st.columns(3)
+        etf_syms   = set(ETF_UNIVERSE)
+        stock_open = [t for t in all_open_trades if t.module == 'stocks']
+
+        wc1, wc2, wc3, wc4 = st.columns(4)
         wc1.metric(
             "Worst-Case Stop-Out",
             f"-${worst_case_loss:,.0f}",
             delta=f"-{worst_case_pct:.1f}% of portfolio",
             delta_color="inverse",
         )
-        wc2.metric("Open Orders", len(open_trades_db))
+        wc2.metric("Open Orders", len(all_open_trades))
         wc3.metric("Open Positions", len(positions))
+        wc4.metric("Stock Positions", len(stock_open))
 
         rows = []
         for p in positions:
@@ -1329,14 +1443,16 @@ with tab4:
             pnl_pct = float(p.unrealized_plpc) * 100
             current = float(p.current_price)
 
-            # Multiple orders per symbol: show tightest stop (highest price) and nearest TP (lowest price)
-            trades = trade_groups.get(p.symbol, [])
+            trades    = trade_groups.get(p.symbol, [])
             stop_vals = [t.stop_loss   for t in trades if t.stop_loss]
             tp_vals   = [t.take_profit for t in trades if t.take_profit]
             stop = max(stop_vals) if stop_vals else None
             tp   = min(tp_vals)   if tp_vals   else None
 
+            module_label = 'ETF' if p.symbol in etf_syms else 'Stock'
+
             rows.append({
+                'Type':      module_label,
                 'Symbol':    p.symbol,
                 'Name':      ETF_NAMES.get(p.symbol, p.symbol),
                 'Shares':    int(float(p.qty)),
@@ -1354,10 +1470,16 @@ with tab4:
             if isinstance(v, str) and '-' in v and not v.startswith('→'): return 'color:#ff6b6b; font-weight:bold'
             return ''
 
-        st.dataframe(pd.DataFrame(rows).style.map(_color_pnl, subset=['P&L $', 'P&L %']),
-                     use_container_width=True, hide_index=True)
+        st.dataframe(
+            pd.DataFrame(rows).style.map(_color_pnl, subset=['P&L $', 'P&L %']),
+            use_container_width=True, hide_index=True,
+        )
     else:
-        st.caption("No open positions. Run `python run.py etf-execute` in the terminal to enter positions.")
+        st.caption(
+            "No open positions. "
+            "Run `python run.py etf-execute` for ETF positions or "
+            "`python run.py stocks-buy SYMBOL` for stock positions."
+        )
 
     st.divider()
 
@@ -1456,6 +1578,39 @@ with tab5:
 with tab6:
     st.markdown('<div class="section-title">📋 Stock Screener — S&P MidCap 400 + SmallCap 600</div>', unsafe_allow_html=True)
 
+    with st.expander("📅 Daily workflow — how to use this tab efficiently (click to read once, then collapse)"):
+        st.markdown("""
+**Your morning routine takes ~20–30 minutes:**
+
+| Time | Action | Command / Tab |
+|------|--------|----------------|
+| Pre-market (8–9 AM) | Run fresh screener | `python run.py stocks-refresh` in terminal |
+| 8:15 AM | Open this tab, read Morning Overview | Market regime + candidate count |
+| 8:20 AM | Review HIGH tier only | Focus here. If empty, skip to MID. |
+| 8:30 AM | For each HIGH candidate: open the chart expander | Check analyst target, revenue trend, EPS beat rate |
+| 8:45 AM | If you have a thesis, place the order | `python run.py stocks-buy SYMBOL` |
+
+**What "having a thesis" means:**
+Before entering, you should be able to answer these 3 questions in 60 seconds:
+1. **Why is it moving?** (earnings beat, new contract, sector rotation, AI capex play — something specific)
+2. **Why hasn't the market fully priced it yet?** (analysts haven't raised targets, institutions still building, beat was very recent)
+3. **What would make you wrong?** (if the setup were a mis-read, where would you expect price to go?)
+
+If you can't answer #1 and #2, skip it. There's always another candidate tomorrow.
+
+**During the day (5 min, optional):**
+- Check the Positions tab if you have open trades — see if stops are approaching
+- If major news hits a holding, decide if the thesis is still intact
+
+**After market close (10 min):**
+- Run `python run.py stocks-check` to detect any positions that closed
+- Check Trade History tab to see updated P&L
+- **Do NOT review tomorrow's candidates until morning** — overnight news can change everything
+
+**Position sizing rule of thumb:**
+The system sizes every trade at **1% portfolio risk**. On a $100k account, the max loss on any single trade if stopped out is $1,000. You can have up to 4 stock positions simultaneously — worst case if all 4 stop out at once: -$4,000 (-4%). That's the floor.
+""")
+
     candidates, cache_time = load_screener_results()
 
     if not candidates:
@@ -1530,9 +1685,16 @@ with tab6:
                 ret_3m = c.get('ret_3m') or 0
                 ret_6m = c.get('ret_6m') or 0
 
-                earnings_flag = c.get('earnings_soon', False)
-                short_flag    = c.get('short_flag', False)
-                short_pct     = (c.get('short_float') or 0) * 100
+                earnings_flag    = c.get('earnings_soon', False)
+                short_flag       = c.get('short_flag', False)
+                short_pct        = (c.get('short_float') or 0) * 100
+                analyst_target   = c.get('analyst_target')
+                analyst_count    = c.get('analyst_count')
+                analyst_rating   = c.get('analyst_rating')
+                rev_q_growth     = c.get('rev_q_growth') or []
+                rev_trend        = c.get('rev_trend')
+                eps_surprise_pct = c.get('eps_surprise_pct')
+                eps_beat_rate    = c.get('eps_beat_rate')
 
                 cap_label = f"${cap/1e9:.1f}B" if cap >= 1e9 else f"${cap/1e6:.0f}M" if cap > 0 else "n/a"
 
@@ -1564,9 +1726,30 @@ with tab6:
                 # RS vs SPY and proximity badges
                 badge_parts = [f"52W High: **{prox*100:.1f}%**  ·  ATR: {atr_pct*100:.1f}%/day"]
                 if _nv(rs_spy):
-                    color = '#00d4aa' if rs_spy > 0 else '#ff6b6b'
+                    rs_col = '#00d4aa' if rs_spy > 0 else '#ff6b6b'
                     badge_parts.append(
-                        f"<span style='color:{color}'>RS vs SPY (3m): {rs_spy*100:+.1f}%</span>"
+                        f"<span style='color:{rs_col}'>RS vs SPY (3m): {rs_spy*100:+.1f}%</span>"
+                    )
+                if analyst_target and price:
+                    upside = (analyst_target - price) / price * 100
+                    tgt_col = '#00d4aa' if upside > 10 else '#ffd700' if upside > 0 else '#ff6b6b'
+                    rating_disp = _fmt_analyst_rating(analyst_rating)
+                    cnt_str = f" · {analyst_count} analysts" if analyst_count else ""
+                    badge_parts.append(
+                        f"<span style='color:{tgt_col}'>Analyst: {rating_disp} · "
+                        f"Target ${analyst_target:.2f} ({upside:+.1f}%){cnt_str}</span>"
+                    )
+                if rev_trend:
+                    trend_col = '#00d4aa' if rev_trend == 'accelerating' else '#ffd700' if rev_trend == 'positive' else '#ff6b6b'
+                    trend_icon = '↑↑' if rev_trend == 'accelerating' else '↑' if rev_trend == 'positive' else '↓'
+                    growth_str = f" ({rev_q_growth[0]*100:+.1f}% last Q)" if rev_q_growth else ""
+                    badge_parts.append(
+                        f"<span style='color:{trend_col}'>Revenue: {trend_icon} {rev_trend.capitalize()}{growth_str}</span>"
+                    )
+                if eps_beat_rate is not None:
+                    beat_col = '#00d4aa' if eps_beat_rate >= 0.67 else '#ffd700' if eps_beat_rate >= 0.33 else '#ff6b6b'
+                    badge_parts.append(
+                        f"<span style='color:{beat_col}'>EPS: {round(eps_beat_rate*3)}/3 quarters beat</span>"
                     )
                 st.markdown(
                     f"<span style='font-size:0.82rem;color:#aaa'>{' &nbsp;·&nbsp; '.join(badge_parts)}</span>",

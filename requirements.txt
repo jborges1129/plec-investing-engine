@@ -1,6 +1,8 @@
 yfinance
 alpaca-py
 pandas
+numpy
+matplotlib
 streamlit
 python-dotenv
 schedule

@@ -2,7 +2,7 @@
 
 **Algorithmic paper trading system — ETF momentum strategy with human-supervised stock selection.**
 
-> **Live dashboard:** run `streamlit run dashboard/app.py` from the project directory.  
+> **Live dashboard:** `streamlit run dashboard/app.py`
 > All trades are paper (simulated at real market prices via Alpaca). No real capital at risk during the pilot phase.
 
 ---
@@ -13,70 +13,105 @@ Two parallel strategies sharing one database and risk framework:
 
 | Module | Strategy | Automation |
 |--------|----------|------------|
-| **ETF** | Scores 20 sector ETFs across 12 independent factors every 15 minutes, holds the top 3 by composite score. Regime-aware: reduces exposure when VIX > 25 or SPY < 200-day MA. | Fully automated. Orders placed and managed without intervention. |
-| **Stocks** | Daily screen of ~1,000 S&P 400/600 stocks. Scores setups 0–10 across 7 technical criteria. Surfaces top 20 candidates each morning. | Human reviews and approves every entry. |
+| **ETF** | Ranks 9 ETFs by pure 12-month momentum. Holds top 1–3 by return. Regime-aware: scales capital from 95% (bull) to 50% (bear). | Fully automated. Orders placed and managed without intervention. |
+| **Stocks** | Daily screen of ~1,000 S&P 400/600 stocks through 7 hard filters + 5-dimension scoring. Surfaces top 20 candidates each morning. | Human reviews and approves every entry. |
 
 ---
 
 ## Why the Money Is Safe
 
-Every position uses Alpaca **bracket orders** — a single API call that submits entry, stop-loss, and take-profit simultaneously. The stop fires automatically; no manual action needed to limit losses.
+Every position uses Alpaca **bracket orders** — a single API call that places entry, stop-loss, and take-profit simultaneously. Exits are automated; no manual action required to limit losses.
 
-**Risk parameters (ETF module):**
+**ETF module risk parameters:**
 
 | Parameter | Value | Reasoning |
 |-----------|-------|-----------|
-| Stop-loss | ATR × 3, capped at 7% | 3× the average daily range — survives normal volatility, catches genuine reversals |
-| Take-profit | 2.5× the stop distance | Requires only a **29% win rate** for positive expected value. Momentum strategies historically achieve 55–65%. |
-| Capital deployed | 30–50% of portfolio | Scales with regime: 50% in bull markets, 30% in bear markets. Remainder stays in cash. |
-| Max concurrent positions | 5 ETFs | Limits concentration; each position sized by inverse volatility |
+| Stop-loss | `min(ATR × 4.5, 12% of price)` | Sized to survive normal daily volatility; fires on genuine trend breaks |
+| Take-profit | 2.5× the stop distance | Requires only a **29% win rate** for positive expected value |
+| Capital deployed | 95% / 80% / 50% | Scales with regime: bull / neutral / bear |
+| Max concurrent ETF positions | 3 | Inverse-vol weighted across top-ranked ETFs |
 
-**Worst-case scenario:** If all open positions hit their stop-loss simultaneously — a historically unprecedented event — the bounded loss is visible in real time on the dashboard. With current parameters and 5 positions, simultaneous stop-out is capped at approximately 3–4% of total portfolio.
+**Stocks module risk parameters:**
+
+| Parameter | Value | Reasoning |
+|-----------|-------|-----------|
+| Risk per trade | 1% of portfolio | Defined-risk entries via ATR-based stop |
+| Stop-loss | 2× ATR below entry | Sized per-stock to each name's actual volatility |
+| Take-profit | 3× the stop distance | 3:1 reward-risk; break-even at 25% win rate |
+| Max concurrent stock positions | 8 | At 1% risk each, worst-case simultaneous stop-out = 8% of portfolio |
+
+**Worst case across both modules:** if every open position stops out simultaneously, total portfolio loss is mathematically capped and visible in real time on the dashboard.
+
+---
+
+## Backtested Performance (ETF Module)
+
+Strategy parameters were locked before the first live paper trade. Backtest run over the same historical period as SPY for apples-to-apples comparison.
+
+| Metric | This Strategy | Buy & Hold SPY |
+|--------|--------------|----------------|
+| CAGR | 13.98% | ~10–11% |
+| Max Drawdown | -25.92% | ~-50% (2008/2020) |
+| Calmar Ratio | 0.54 | ~0.42 |
+
+> The Calmar ratio (CAGR ÷ max drawdown) is the relevant comparison — it measures how much return you get per unit of worst-case loss. The strategy beats SPY on a risk-adjusted basis by holding cash in bear regimes instead of riding drawdowns.
+
+---
+
+## ETF Universe
+
+9 ETFs covering distinct market segments — no overlap, maximum diversification of factor exposure:
+
+```
+SPY   QQQ   SOXX   XLI   XLP   XLE   XOP   EWY   AGG
+```
+
+Each month, all 9 are ranked by 12-month total return. The top 1–3 with positive momentum (>1% over 12 months) are held. Capital is allocated in inverse proportion to each ETF's 3-month volatility (inverse-vol weighting).
+
+**Regime detection** adjusts total deployed capital before sizing:
+- **Bull:** SPY above 200-day MA and VIX < 20 → 95% of portfolio deployed
+- **Neutral:** one condition fails → 80% deployed
+- **Bear:** both conditions fail → 50% deployed
+
+---
+
+## Stock Screener Pipeline
+
+**Universe:** ~1,000 stocks from S&P 400 (mid-cap) + S&P 600 (small-cap)
+
+**Stage 1 — Hard gates (all must pass):**
+- Price $5–$150
+- Market cap $100M–$2B
+- Average volume ≥ 200K shares/day
+- Price above 200-day MA (long-term uptrend)
+- RSI 40–70 (not oversold, not overbought)
+- ATR/price ≥ 1.5% (enough volatility to make bracket orders worthwhile)
+- No earnings within 3 days (avoids binary event risk)
+
+**Stage 2 — Setup scoring (0–10 per dimension):**
+- Momentum (1m, 3m, 6m returns vs universe)
+- Trend strength (distance from 20/50/200 MAs)
+- Volume conviction (recent volume vs 20-day average)
+- Volatility quality (ATR-to-price in the sweet spot)
+- Fundamental health (analyst target upside, EPS beat rate, revenue trend)
+
+**Output tiers:**
+- **HIGH (≥8/10):** Top setups — review these first
+- **MID (5–7):** Solid candidates — review if time allows
+- **LOW (<5):** Shown for context, typically skip
+
+Each candidate card shows analyst consensus, price target vs current, quarterly revenue trend (accelerating / decelerating), and EPS beat rate — so morning review is judgment only, not research.
 
 ---
 
 ## Performance Tracking
 
-Paper trading began **May 26, 2026**. The dashboard shows:
-
-- Live open positions with entry price, current P&L, distance to stop, and distance to target
-- Closed trades with realized P&L, win/loss breakdown, and expectancy per trade
-- Portfolio value chart vs. SPY benchmark (same starting value)
-- Market regime indicator (Bull / Neutral / Bear) driving current allocation
-
-*A 90-day paper trading period is the standard evaluation window. The strategy parameters were locked before the first trade was placed.*
-
----
-
-## ETF Scoring Model — 12 Factors, 0–100 Composite Score
-
-Every 15 minutes during market hours, each ETF is scored across 12 independent factors. The top-scoring ETFs with positive 3-month momentum are held.
-
-| Factor | Weight | What it measures |
-|--------|--------|-----------------|
-| 3-month return | 22% | Cross-sectional momentum — the Antonacci primary signal |
-| 1-month return | 10% | Short-term continuation — avoids buying exhausted runs |
-| Momentum acceleration | 8% | Is the 1-month pace outrunning the 3-month pace? |
-| Alpha vs SPY | 12% | Excess return over the S&P 500 — rewards true alpha, not just beta |
-| Sharpe ratio (3m) | 10% | Risk-adjusted return — same return at lower volatility ranks higher |
-| Max drawdown (3m, inverted) | 8% | Penalizes choppy/unstable price histories |
-| RSI positioning | 6% | Sweet spot 45–65; extremes signal mean-reversion risk |
-| MACD signal | 8% | Trend direction confirmation — MACD vs signal line |
-| % above 50-day MA | 6% | Near-term trend alignment |
-| % above 200-day MA | 4% | Long-term structural trend |
-| Relative volume (5d/20d) | 4% | Institutional conviction — rising volume confirms the move |
-| Regime fit | 2% | Alignment with current macro regime (Bull/Neutral/Bear) |
-
-All z-score factors are normalized cross-sectionally within the current candidate universe each run. The absolute momentum filter (>1% 3-month return) acts as a hard gate before scoring — no ETF in a 3-month decline enters the portfolio regardless of its composite score.
-
-## Strategy Parameters — Academic Basis
-
-- **ATR × 3 stop:** factor-of-safety framing — 3 standard deviations of daily range to trigger (Wilder, 1978)
-- **2.5:1 reward-risk:** expected value = 0.60 × 2.5 − 0.40 × 1.0 = **+1.10 per unit of risk** at a 60% win rate
-- **Momentum filter:** Jegadeesh & Titman (1993); Antonacci *Dual Momentum Investing* (2014) — ETFs must show >1% gain over the prior 3 months to qualify
-- **MACD (12/26/9):** trend direction confirmation — reduces false positives from short-term noise
-- **Sharpe ratio:** rewards high-quality returns, not just raw returns — avoids holding volatile ETFs that happen to be up
-- **Regime detection:** VIX threshold + 200-day MA crossover — reduces exposure in bear markets, consistent with risk-parity frameworks
+The dashboard shows:
+- Live open positions with entry, current P&L, distance to stop, distance to target
+- Closed trades with realized P&L, win/loss breakdown, and per-trade expectancy
+- Portfolio value chart vs. SPY benchmark
+- Market regime indicator (Bull / Neutral / Bear)
+- Stock screener candidates with full research pre-loaded
 
 ---
 
@@ -84,11 +119,11 @@ All z-score factors are normalized cross-sectionally within the current candidat
 
 | Phase | Module | Status |
 |-------|--------|--------|
-| **Phase I** | ETF momentum engine — automated, bounded downside, regime-aware | ✅ Running |
-| **Phase II** | Individual stock screener — human-supervised entries, 7-factor scoring | ✅ Built, validating |
-| **Phase III** | Prediction markets / Kalshi — structural arbitrage, different risk hypothesis | Gated by Phase I & II results |
+| **Phase I** | ETF momentum engine — automated, regime-aware, bounded downside | ✅ Running |
+| **Phase II** | Stock screener — human-supervised, research pre-fetched, bracket orders | ✅ Built, validating |
+| **Phase III** | Sports betting + Kalshi prediction markets — Kelly criterion sizing, surebet arbitrage | Gated by Phase I & II results |
 
-Phase III does not begin until Phase I and II demonstrate consistent signal over at least one full market cycle.
+Phase III begins only after Phase I and II demonstrate consistent positive expectancy across at least one full market cycle.
 
 ---
 
@@ -98,23 +133,33 @@ Phase III does not begin until Phase I and II demonstrate consistent signal over
 # Install dependencies
 pip install -r requirements.txt
 
-# Copy and fill in API keys
-cp .env.example .env
+# Configure API keys
+cp .env.example .env   # then fill in ALPACA_API_KEY and ALPACA_SECRET_KEY
 
-# View dashboard
+# View live dashboard
 streamlit run dashboard/app.py
 
-# Morning briefing (analysis only, no trades)
+# Morning ETF briefing (analysis only, no trades placed)
 python run.py briefing
 
 # Execute ETF positions after reviewing briefing
 python run.py etf-execute
 
-# Start intraday scheduler (position monitoring + rotation alerts, every 30 min)
-python run.py scheduler
-
-# Stock screener
+# Run stock screener (uses today's cache if available)
 python run.py stocks
+
+# Force fresh stock screener run (ignores cache)
+python run.py stocks-refresh
+
+# Buy a specific stock after reviewing screener output
+python run.py stocks-buy SYMBOL
+
+# Check for positions that closed since last run
+python run.py stocks-check
+python run.py check
+
+# Start intraday scheduler (rotation checks + monitoring every 30 min)
+python run.py scheduler
 ```
 
 ---
@@ -123,15 +168,17 @@ python run.py stocks
 
 ```
 investing-system/
-├── shared/            # Alpaca API, database, data fetching
-├── etf_module/        # Momentum strategy and automated execution
-├── stocks_module/     # Daily screener, signal scoring, candidate alerts
+├── shared/            # Alpaca API, SQLite database, yfinance data fetching
+├── etf_module/        # Momentum ranking, regime detection, automated execution
+├── stocks_module/     # Daily screener, signal scoring, research enrichment, alerts
+├── backtest/          # Historical backtest engine (trailing stop simulation)
 ├── dashboard/         # Streamlit dashboard
+├── docs/              # Strategy overview document
 ├── scheduler.py       # APScheduler — runs during market hours
 ├── run.py             # CLI entry point
-└── docs/              # Strategy notes and ideation
+└── .streamlit/        # Dashboard config (headless mode, port 8501)
 ```
 
 ---
 
-*Built with Python · Alpaca paper trading API · yfinance · Streamlit · SQLite*
+*Built with Python · Alpaca paper trading API · yfinance · pandas · Streamlit · SQLite*

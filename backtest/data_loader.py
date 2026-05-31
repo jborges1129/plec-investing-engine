@@ -55,7 +55,8 @@ def fetch_all_history(symbols: list[str], start: str, end: str) -> dict[str, pd.
 
 def get_trading_dates(data: dict[str, pd.DataFrame]) -> pd.DatetimeIndex:
     """All trading dates from the SPY series (proxy for market-open days)."""
-    ref = data.get('SPY') or next(iter(data.values()))
+    spy = data.get('SPY')
+    ref = spy if (spy is not None and not spy.empty) else next(iter(data.values()))
     return ref.index.sort_values()
 
 

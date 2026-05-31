@@ -9,69 +9,49 @@ from dotenv import load_dotenv
 load_dotenv()
 
 ETF_UNIVERSE = [
-    # Broad market
-    'SPY', 'QQQ', 'IWM', 'DIA',
-    # All 11 S&P 500 sectors
-    'XLK',   # Technology
-    'XLF',   # Financials
-    'XLE',   # Energy
-    'XLY',   # Consumer Discretionary
-    'XLB',   # Materials
-    'XLI',   # Industrials
-    'XLC',   # Communication Services
-    'XLP',   # Consumer Staples
-    'XLV',   # Healthcare
-    'XLU',   # Utilities
-    'XLRE',  # Real Estate
-    # Defensive / alternatives
-    'TLT',   # Long-term treasuries
-    'GLD',   # Gold
-    'SLV',   # Silver
-    # International
-    'EFA',   # Developed markets
-    'EEM',   # Emerging markets
+    'SPY',   # S&P 500 — broad market benchmark / diversifier
+    'QQQ',   # Nasdaq 100 — tech/AI secular play
+    'SOXX',  # Semiconductors — AI infrastructure supply chain
+    'XLI',   # Industrials — defense + AI physical infra + reshoring (current rotation leader)
+    'XLP',   # Consumer Staples — defensive rotation leader (best 35-yr start in 2026)
+    'XLE',   # Energy — supply cycle plays
+    'XOP',   # E&P upstream — highest oil price beta
+    'EWY',   # South Korea — Samsung/SK Hynix, AI semiconductor EM
+    'AGG',   # Broad bonds — safety rotation when equities all negative
 ]
 
 ETF_TOP_HOLDINGS = {
     'SPY':  [('Apple', 7.2), ('Microsoft', 6.4), ('NVIDIA', 5.5), ('Amazon', 3.7), ('Meta', 2.5)],
     'QQQ':  [('Microsoft', 9.0), ('Apple', 8.5), ('NVIDIA', 8.3), ('Amazon', 5.0), ('Broadcom', 4.8)],
-    'IWM':  [],  # ~2,000 small-cap holdings; no single position above 0.5%
-    'DIA':  [('UnitedHealth', 9.8), ('Goldman Sachs', 8.2), ('Microsoft', 5.3), ('Home Depot', 4.9)],
-    'XLK':  [('Apple', 20.1), ('Microsoft', 18.2), ('NVIDIA', 9.4), ('Broadcom', 4.9), ('AMD', 3.2)],
-    'XLF':  [('Berkshire Hathaway', 13.1), ('JPMorgan Chase', 10.2), ('Visa', 4.9), ('Mastercard', 4.5)],
-    'XLE':  [('ExxonMobil', 22.3), ('Chevron', 17.1), ('ConocoPhillips', 8.2), ('EOG Resources', 4.5)],
-    'XLY':  [('Amazon', 24.1), ('Tesla', 13.8), ('Home Depot', 5.4), ("McDonald's", 4.1)],
-    'XLB':  [('Linde', 17.2), ('Sherwin-Williams', 8.1), ('Air Products', 6.3), ('Freeport-McMoRan', 5.9)],
-    'XLI':  [('GE Aerospace', 5.2), ('Caterpillar', 4.9), ('Honeywell', 4.3), ('Uber', 4.1)],
-    'XLC':  [('Meta Platforms', 23.1), ('Alphabet A', 14.3), ('Alphabet C', 11.2), ('Netflix', 5.1)],
+    'SOXX': [('Broadcom', 8.3), ('NVIDIA', 7.9), ('TSMC ADR', 7.1), ('Texas Instruments', 4.8), ('AMD', 4.6)],
+    'XLI':  [('GE Aerospace', 6.6), ('Caterpillar', 6.3), ('RTX', 5.2), ('GE Vernova', 4.3), ('Boeing', 3.3)],
     'XLP':  [('Procter & Gamble', 15.1), ('Costco', 12.8), ('Coca-Cola', 9.7), ('PepsiCo', 8.5)],
-    'XLV':  [('Eli Lilly', 12.1), ('Johnson & Johnson', 8.9), ('UnitedHealth', 8.5), ('AbbVie', 5.2)],
-    'XLU':  [('NextEra Energy', 14.1), ('Southern Company', 5.3), ('Duke Energy', 4.9)],
-    'XLRE': [('Prologis', 10.2), ('American Tower', 9.1), ('Equinix', 7.3), ('Welltower', 5.8)],
-    'TLT':  [],  # US Treasury bonds, 20+ year maturity; moves inversely with interest rates
-    'GLD':  [],  # Physical gold; ~0.095 troy oz per share
-    'SLV':  [],  # Physical silver
-    'EFA':  [('Nestlé', 2.1), ('ASML', 1.9), ('LVMH', 1.8), ('Novo Nordisk', 1.7)],
-    'EEM':  [('Samsung Electronics', 3.8), ('Taiwan Semi', 3.5), ('Tencent', 3.3), ('Alibaba', 2.1)],
+    'XLE':  [('ExxonMobil', 22.3), ('Chevron', 17.1), ('ConocoPhillips', 8.2), ('EOG Resources', 4.5)],
+    'XOP':  [('ConocoPhillips', 4.8), ('EOG Resources', 4.6), ('Pioneer Natural', 4.4), ('Devon Energy', 4.3)],
+    'EWY':  [('Samsung Electronics', 22.1), ('SK Hynix', 6.8), ('LG Energy Solution', 3.9), ('Hyundai Motor', 3.7)],
+    'AGG':  [],  # US investment-grade bonds (Treasuries ~43%, corp bonds ~28%, MBS ~27%)
 }
 
 ETF_NAMES = {
-    'SPY': 'S&P 500', 'QQQ': 'Nasdaq 100', 'IWM': 'Russell 2000 Small Cap', 'DIA': 'Dow Jones',
-    'XLK': 'Technology', 'XLF': 'Financials', 'XLE': 'Energy',
-    'XLY': 'Consumer Discretionary', 'XLB': 'Materials', 'XLI': 'Industrials',
-    'XLC': 'Communication Services', 'XLP': 'Consumer Staples',
-    'XLV': 'Healthcare', 'XLU': 'Utilities', 'XLRE': 'Real Estate',
-    'TLT': 'Long-Term Treasuries', 'GLD': 'Gold', 'SLV': 'Silver',
-    'EFA': 'Intl Developed Markets', 'EEM': 'Emerging Markets',
+    'SPY':  'S&P 500',
+    'QQQ':  'Nasdaq 100',
+    'SOXX': 'Semiconductors',
+    'XLI':  'Industrials',
+    'XLP':  'Consumer Staples',
+    'XLE':  'Energy',
+    'XOP':  'Oil & Gas E&P',
+    'EWY':  'South Korea',
+    'AGG':  'US Aggregate Bonds',
 }
 
-BULL_ETFS = {'SPY', 'QQQ', 'IWM', 'DIA', 'XLK', 'XLF', 'XLE', 'XLY', 'XLB', 'XLI', 'XLC'}
-BEAR_ETFS = {'TLT', 'GLD', 'SLV', 'XLV', 'XLP', 'XLU', 'XLRE'}
-NEUTRAL_ETFS = {'EFA', 'EEM'}
+BULL_ETFS  = {'SPY', 'QQQ', 'SOXX', 'XLI', 'XLE', 'XOP'}
+BEAR_ETFS  = {'AGG', 'XLP'}
+NEUTRAL_ETFS = {'EWY'}
 
 # Fetch extra buffer so 6-month lookback (126 days) is always covered
 _MOMENTUM_PERIOD = '8mo'
-_MIN_BARS_FOR_6M = 126
+_MIN_BARS_FOR_6M  = 126
+_MIN_BARS_FOR_12M = 252
 
 
 def _yf_fetch(symbol: str, period: str, interval: str = '1d') -> pd.DataFrame:
@@ -152,7 +132,7 @@ def get_current_price(symbol: str) -> float:
 
 
 def get_momentum(df: pd.DataFrame) -> dict:
-    """Compute 1m/3m/6m momentum from a pre-fetched history DataFrame."""
+    """Compute momentum at 1d/5d/1m/3m/6m/12m from a pre-fetched history DataFrame."""
     close = df['Close']
     if len(close) < _MIN_BARS_FOR_6M:
         raise ValueError(f"Insufficient history: {len(close)} bars (need {_MIN_BARS_FOR_6M})")
@@ -160,16 +140,17 @@ def get_momentum(df: pd.DataFrame) -> dict:
 
     def _ret(days):
         if len(close) < days:
-            raise ValueError(f"Need {days} bars for momentum, have {len(close)}")
+            return float('nan')
         start = float(close.iloc[-days])
         return (current - start) / start
 
     return {
-        'return_1d': _ret(2),   # yesterday close → today
-        'return_5d': _ret(6),   # 5 trading days ago → today (~1 week)
-        'return_1m': _ret(21),
-        'return_3m': _ret(63),
-        'return_6m': _ret(126),
+        'return_1d':  _ret(2),
+        'return_5d':  _ret(6),
+        'return_1m':  _ret(21),
+        'return_3m':  _ret(63),
+        'return_6m':  _ret(126),
+        'return_12m': _ret(252),
     }
 
 
@@ -422,26 +403,30 @@ def get_prior_day_summary() -> dict:
 
 
 def _compute_symbol_row(symbol: str, df: pd.DataFrame) -> dict:
-    """Compute all 12 factor inputs from a single price history DataFrame."""
-    price        = float(df['Close'].iloc[-1])
-    mom          = get_momentum(df)
-    atr          = get_atr(df)
-    rsi          = get_rsi(df)
-    vol_trend    = get_volume_trend(df)
-    vol_ratio    = get_volume_ratio(df)
-    macd_data    = get_macd(df)
-    ma_data      = get_ma_distances(df)
-    realized_vol = get_realized_vol(df)
-    max_dd       = get_max_drawdown(df)
+    """Compute all factor inputs from a single price history DataFrame."""
+    price           = float(df['Close'].iloc[-1])
+    mom             = get_momentum(df)
+    atr             = get_atr(df)
+    rsi             = get_rsi(df)
+    vol_trend       = get_volume_trend(df)
+    vol_ratio       = get_volume_ratio(df)
+    macd_data       = get_macd(df)
+    ma_data         = get_ma_distances(df)
+    realized_vol_3m = get_realized_vol(df, period=63)
+    realized_vol_12m = get_realized_vol(df, period=min(252, len(df) - 1))
+    max_dd_3m       = get_max_drawdown(df, period=63)
+    max_dd_12m      = get_max_drawdown(df, period=min(252, len(df) - 1))
     return {
-        'symbol':          symbol,
-        'price':           price,
-        'atr':             atr,
-        'rsi':             rsi,
-        'volume_trend':    vol_trend,
-        'volume_ratio':    vol_ratio,
-        'realized_vol_3m': realized_vol,
-        'max_drawdown_3m': max_dd,
+        'symbol':           symbol,
+        'price':            price,
+        'atr':              atr,
+        'rsi':              rsi,
+        'volume_trend':     vol_trend,
+        'volume_ratio':     vol_ratio,
+        'realized_vol_3m':  realized_vol_3m,
+        'realized_vol_12m': realized_vol_12m,
+        'max_drawdown_3m':  max_dd_3m,
+        'max_drawdown_12m': max_dd_12m,
         **mom,
         **macd_data,
         **ma_data,
@@ -495,20 +480,26 @@ def rank_etfs_by_momentum(universe: list = None) -> pd.DataFrame:
     if out.empty:
         return out
 
-    # SPY benchmark return for cross-sectional alpha calculation
+    # SPY benchmark returns for cross-sectional alpha calculations
     spy_row = out[out['symbol'] == 'SPY']
     if not spy_row.empty:
-        spy_return_3m = float(spy_row['return_3m'].iloc[0])
+        spy_return_3m  = float(spy_row['return_3m'].iloc[0])
+        spy_return_12m = float(spy_row['return_12m'].iloc[0]) if 'return_12m' in spy_row.columns else 0.0
     else:
-        # SPY not in universe (bear regime) — fetch it separately via Alpaca
         try:
-            spy_batch     = _fetch_alpaca_batch(['SPY'])
-            spy_return_3m = float(get_momentum(spy_batch['SPY'])['return_3m'])
+            spy_batch      = _fetch_alpaca_batch(['SPY'])
+            spy_mom        = get_momentum(spy_batch['SPY'])
+            spy_return_3m  = float(spy_mom['return_3m'])
+            spy_return_12m = float(spy_mom.get('return_12m', 0.0))
         except Exception:
             try:
-                spy_return_3m = float(get_momentum(_fetch_full_history('SPY'))['return_3m'])
+                spy_mom        = get_momentum(_fetch_full_history('SPY'))
+                spy_return_3m  = float(spy_mom['return_3m'])
+                spy_return_12m = float(spy_mom.get('return_12m', 0.0))
             except Exception:
-                spy_return_3m = 0.0
+                spy_return_3m  = 0.0
+                spy_return_12m = 0.0
 
-    out['spy_return_3m'] = spy_return_3m
+    out['spy_return_3m']  = spy_return_3m
+    out['spy_return_12m'] = spy_return_12m
     return out

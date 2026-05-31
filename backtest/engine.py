@@ -11,7 +11,7 @@ Design principles that prevent look-ahead bias:
 
 import math
 import pandas as pd
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 from shared.data import (
@@ -20,15 +20,13 @@ from shared.data import (
     ETF_UNIVERSE,
 )
 from etf_module.strategy import (
-    _compute_composite_scores,
     get_etf_candidates,
-    QUALITY_FLOOR_3M,
+    QUALITY_FLOOR_12M,
     REGIME_ALLOCATION,
     MAX_POSITIONS,
-    ATR_MULTIPLIER,
-    REWARD_RISK_RATIO,
-    MAX_STOP_PCT,
+    TRAIL_PCT,
     MIN_ALLOCATION_USD,
+    WINNER_PROTECTION_THRESHOLD,
 )
 from backtest.data_loader import get_symbol_slice, get_next_trading_day
 
@@ -41,13 +39,15 @@ class Trade:
     entry_date:         pd.Timestamp
     entry_price:        float
     qty:                float
-    stop_price:         float
-    take_profit_price:  float
-    stop_loss_pct:      float
-    composite_score:    float
+    stop_price:         float          # current trailing stop level (updated daily)
+    position_high:      float          # highest price seen since entry (for trailing)
+    trail_pct:          float          # e.g. 0.30 means stop trails 30% below high
+    take_profit_price:  float          # set to large value — no fixed TP with trailing stops
+    stop_loss_pct:      float          # initial stop distance at entry (= trail_pct)
+    composite_score:    float          # 12m return used as rank score
     exit_date:          Optional[pd.Timestamp] = None
     exit_price:         Optional[float]        = None
-    exit_reason:        Optional[str]          = None  # 'stop' | 'take_profit' | 'rebalance' | 'end'
+    exit_reason:        Optional[str]          = None  # 'stop' | 'rebalance' | 'end'
 
     @property
     def pnl_pct(self) -> Optional[float]:
@@ -109,17 +109,20 @@ def _build_factor_df(
     """
     rows: list[dict] = []
 
-    spy_slice     = get_symbol_slice(data, 'SPY', as_of)
-    spy_return_3m = 0.0
-    if len(spy_slice) >= 63:
+    spy_slice      = get_symbol_slice(data, 'SPY', as_of)
+    spy_return_3m  = 0.0
+    spy_return_12m = 0.0
+    if len(spy_slice) >= 252:
         try:
-            spy_return_3m = get_momentum(spy_slice)['return_3m']
+            spy_mom        = get_momentum(spy_slice)
+            spy_return_3m  = spy_mom['return_3m']
+            spy_return_12m = spy_mom.get('return_12m', 0.0) or 0.0
         except Exception:
             pass
 
     for sym in candidates:
         df_slice = get_symbol_slice(data, sym, as_of)
-        if len(df_slice) < 126:   # need ≥6m of data; _compute_symbol_row will raise otherwise
+        if len(df_slice) < 252:   # need ≥12m of data for the primary signal
             continue
         try:
             row = _compute_symbol_row(sym, df_slice)
@@ -131,7 +134,8 @@ def _build_factor_df(
         return pd.DataFrame()
 
     out = pd.DataFrame(rows)
-    out['spy_return_3m'] = spy_return_3m
+    out['spy_return_3m']  = spy_return_3m
+    out['spy_return_12m'] = spy_return_12m
     return out
 
 
@@ -141,29 +145,28 @@ def _get_sizing_rows(
     regime: str,
 ) -> list[dict]:
     """
-    Inverse-vol position sizing, matching the live get_position_sizing() logic.
-    Adds stop_loss_pct / take_profit_pct so pending entries carry everything
-    needed to set bracket levels at fill time.
+    Inverse-vol sizing using 12m realized vol; trailing stop replaces ATR bracket.
+    Each row carries trail_pct so the engine can initialize position_high at fill.
     """
-    qualified = scored_df[scored_df['return_3m'] > QUALITY_FLOOR_3M].head(MAX_POSITIONS).copy()
-    top = qualified[qualified['atr'] > 0].copy()
-    if top.empty:
+    qualified = scored_df[scored_df['return_12m'] > QUALITY_FLOOR_12M].head(MAX_POSITIONS).copy()
+    if qualified.empty:
         return []
 
     total_etf_budget = portfolio_value * REGIME_ALLOCATION[regime]
     if total_etf_budget < MIN_ALLOCATION_USD:
         return []
 
-    top['atr_pct']        = top['atr'] / top['price']
-    top['inv_vol']        = 1.0 / top['atr_pct']
-    top['weight']         = top['inv_vol'] / top['inv_vol'].sum()
-    top['allocation_usd'] = top['weight'] * total_etf_budget
-    top['stop_loss_pct']  = top.apply(
-        lambda r: min((ATR_MULTIPLIER * r['atr']) / r['price'], MAX_STOP_PCT), axis=1
-    )
-    top['take_profit_pct'] = top['stop_loss_pct'] * REWARD_RISK_RATIO
+    safe_vol = qualified['realized_vol_12m'].replace(0, float('nan'))
+    qualified['inv_vol'] = 1.0 / safe_vol
+    qualified = qualified.dropna(subset=['inv_vol'])
+    if qualified.empty:
+        return []
 
-    return top.to_dict('records')
+    qualified['weight']         = qualified['inv_vol'] / qualified['inv_vol'].sum()
+    qualified['allocation_usd'] = qualified['weight'] * total_etf_budget
+    qualified['trail_pct']      = TRAIL_PCT
+
+    return qualified.to_dict('records')
 
 
 # ── Main backtest loop ────────────────────────────────────────────────────────
@@ -216,21 +219,24 @@ def run_backtest(
                 cost = entry_price * qty
             if qty <= 0:
                 continue
+            trail = entry['trail_pct']
             trade = Trade(
                 symbol            = sym,
                 entry_date        = date,
                 entry_price       = entry_price,
                 qty               = qty,
-                stop_price        = round(entry_price * (1 - entry['stop_loss_pct']),  4),
-                take_profit_price = round(entry_price * (1 + entry['take_profit_pct']), 4),
-                stop_loss_pct     = entry['stop_loss_pct'],
+                stop_price        = round(entry_price * (1 - trail), 4),
+                position_high     = entry_price,
+                trail_pct         = trail,
+                take_profit_price = entry_price * 100.0,  # effectively disabled
+                stop_loss_pct     = trail,
                 composite_score   = entry['composite_score'],
             )
             cash -= cost
             open_positions[sym] = trade
         pending_entries = remaining_pending
 
-        # ── 2. Check stops and take-profits ──────────────────────────────────
+        # ── 2. Check trailing stops ───────────────────────────────────────────
         to_close: list[str] = []
         for sym, pos in open_positions.items():
             if sym not in data or date not in data[sym].index:
@@ -240,25 +246,26 @@ def run_backtest(
             day_low  = float(row['Low'])
             day_high = float(row['High'])
 
+            # Trailing stop from yesterday's position high
+            trail_stop = pos.position_high * (1 - pos.trail_pct)
+
             fill_price  = None
             exit_reason = None
 
-            # Gap down through stop?
-            if day_open <= pos.stop_price:
+            # Gap down through trailing stop?
+            if day_open <= trail_stop:
                 fill_price  = day_open * (1 - slippage_mult)
                 exit_reason = 'stop'
-            # Intraday stop touch?
-            elif day_low <= pos.stop_price:
-                fill_price  = pos.stop_price * (1 - slippage_mult)
-                exit_reason = 'stop'
-            # Gap up through take-profit?
-            elif day_open >= pos.take_profit_price:
-                fill_price  = day_open * (1 - slippage_mult)
-                exit_reason = 'take_profit'
-            # Intraday take-profit touch?
-            elif day_high >= pos.take_profit_price:
-                fill_price  = pos.take_profit_price * (1 - slippage_mult)
-                exit_reason = 'take_profit'
+            else:
+                # Ratchet position high up on today's action, then check intraday
+                new_high = max(pos.position_high, day_high)
+                pos.position_high = new_high
+                trail_stop_updated = new_high * (1 - pos.trail_pct)
+                pos.stop_price = trail_stop_updated  # keep current for reference
+
+                if day_low <= trail_stop_updated:
+                    fill_price  = trail_stop_updated * (1 - slippage_mult)
+                    exit_reason = 'stop'
 
             if fill_price is not None:
                 pos.exit_date   = date
@@ -279,9 +286,11 @@ def run_backtest(
             factor_df   = _build_factor_df(data, candidates, date)
 
             if not factor_df.empty:
-                scored_df = _compute_composite_scores(factor_df, regime)
+                # Pure 12m momentum rank — no composite scoring model
+                scored_df = factor_df.copy()
+                scored_df['composite_score'] = scored_df['return_12m']
                 scored_df = scored_df.sort_values(
-                    'composite_score', ascending=False
+                    'return_12m', ascending=False
                 ).reset_index(drop=True)
 
                 # Portfolio value for sizing (cash + current open positions at close)
@@ -293,15 +302,21 @@ def run_backtest(
                 sizing_rows   = _get_sizing_rows(scored_df, portfolio_value, regime)
                 target_symbols = {r['symbol'] for r in sizing_rows}
 
-                # Close positions no longer in the target
+                # Close positions no longer in the target, but protect winning ones.
+                # If a position is up > WINNER_PROTECTION_THRESHOLD, skip rotating it out —
+                # let it ride to its natural stop or take-profit rather than cutting early.
                 to_rebalance_out = [s for s in list(open_positions) if s not in target_symbols]
                 for sym in to_rebalance_out:
-                    pos  = open_positions[sym]
-                    fill = (
-                        float(data[sym].loc[date, 'Close']) * (1 - slippage_mult)
+                    pos = open_positions[sym]
+                    current_close = (
+                        float(data[sym].loc[date, 'Close'])
                         if sym in data and date in data[sym].index
                         else pos.entry_price
                     )
+                    unrealized_pct = (current_close - pos.entry_price) / pos.entry_price
+                    if unrealized_pct > WINNER_PROTECTION_THRESHOLD:
+                        continue  # let winner ride — stop/TP will handle exit
+                    fill = current_close * (1 - slippage_mult)
                     pos.exit_date   = date
                     pos.exit_price  = fill
                     pos.exit_reason = 'rebalance'
@@ -337,8 +352,7 @@ def run_backtest(
                             'symbol':          sym,
                             'entry_date':      next_day,
                             'allocation_usd':  alloc,
-                            'stop_loss_pct':   row['stop_loss_pct'],
-                            'take_profit_pct': row['take_profit_pct'],
+                            'trail_pct':       row['trail_pct'],
                             'composite_score': row['composite_score'],
                         })
 

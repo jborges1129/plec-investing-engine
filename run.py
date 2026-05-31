@@ -101,9 +101,25 @@ def main():
         regime_data = get_market_regime_cached()
         print_stock_briefing(candidates, regime=regime_data.get('regime', 'unknown'))
 
+    elif command == 'stocks-buy':
+        # Enter a specific stock position after reviewing screener output
+        # Usage: python run.py stocks-buy AAPL
+        symbol = sys.argv[2].upper() if len(sys.argv) > 2 else None
+        if not symbol:
+            print("Usage: python run.py stocks-buy SYMBOL")
+        else:
+            from stocks_module.execute import buy_stock
+            buy_stock(symbol)
+
+    elif command == 'stocks-check':
+        # Detect stock positions that closed on Alpaca and update the database
+        from stocks_module.execute import check_closed_positions
+        check_closed_positions()
+
     else:
         print(f"Unknown command: {command}")
-        print("Usage: python run.py [status|briefing|etf-execute|scan|check|rotate-check|scheduler|stocks|stocks-refresh]")
+        print("Usage: python run.py [status|briefing|etf-execute|scan|check|rotate-check|scheduler"
+              "|stocks|stocks-refresh|stocks-buy SYMBOL|stocks-check]")
 
 
 if __name__ == '__main__':

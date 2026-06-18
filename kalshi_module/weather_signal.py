@@ -848,7 +848,11 @@ def log_signals_to_csv(signals: list[dict], auto_log: bool, dedupe: bool = False
 
     if not auto_log:
         print(f"Log to {CSV_PATH.name}?  [a]ll / [1] top only / [n]o  → ", end="")
-        choice = input().strip().lower()
+        try:
+            choice = input().strip().lower()
+        except EOFError:
+            print("(no input — skipping log)")
+            return
         if choice == "n" or choice == "":
             return
         to_log = signals if choice == "a" else signals[:1]

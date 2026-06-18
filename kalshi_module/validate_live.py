@@ -228,6 +228,8 @@ def main():
                     help="Override PEAK_DISCOUNT (fraction of projected rise to trust)")
     ap.add_argument("--std-at-peak", type=float, default=None,
                     help="Override STD_AT_PEAK (°F)")
+    ap.add_argument("--decision-hour", type=int, default=None,
+                    help="Local hour to evaluate at (default 13). Sweep to find when edge is best.")
     args = ap.parse_args()
 
     if args.peak_bias is not None:
@@ -236,6 +238,9 @@ def main():
         ws.PEAK_DISCOUNT = args.peak_discount
     if args.std_at_peak is not None:
         ws.STD_AT_PEAK = args.std_at_peak
+    if args.decision_hour is not None:
+        global DECISION_HOUR
+        DECISION_HOUR = args.decision_hour
 
     kcache, ocache = _load(KCACHE), _load(OCACHE)
     print(f"Validating {args.start}..{args.end} at {DECISION_HOUR}:00 local  "

@@ -97,6 +97,22 @@ clean edge signal, and it's significant. The model finds mispricings the book la
 corrects; we just can't yet prove that converts to significant realized P&L on this
 sample.
 
+### 5. WHEN to trade — the edge is a midday phenomenon
+Sweeping the decision hour (`validate_live.py --decision-hour`):
+
+| Local hour | Brier | ROI/bet | 3h line-drift (95% CI) |
+|---|---|---|---|
+| 10am | 0.117 | +2.0% | +1.8¢ [+0.1, +3.7] marginal |
+| 12pm | 0.112 | +2.5% | +5.9¢ **[+2.5, +9.3]** |
+| 1pm  | 0.106 | +2.8% | +7.3¢ **[+3.2, +11.6]** |
+| 2pm  | 0.103 | −0.2% | +3.4¢ [−0.5, +7.6] gone |
+| 4pm  | 0.100 | −2.7% | −0.5¢ [−4.6, +3.5] gone |
+
+Brier keeps *improving* into late afternoon (more observations lock the outcome), but
+the tradeable edge **peaks at 12–1pm and decays to nothing by 2–4pm** — by late day the
+market has priced the same observations we have. **Trade ~12–1pm local.** The scanner now
+prints this guidance.
+
 ## Bottom line
 The edge is **real but thin** — confirmed by a significant post-entry line drift
 (+7.3¢, CI clear of 0), not yet by significant realized ROI (CI straddles 0). It is NOT

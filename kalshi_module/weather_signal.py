@@ -687,7 +687,9 @@ def print_signals(signals: list[dict], bankroll: float) -> None:
         names = ", ".join(f"{s['city'].split(' (')[0]} {s['threshold_str']} {s['side']}"
                           for s in trustworthy[:3])
         print(f"    Start with: {names}.")
-    print(f"    All bets are paper/small until 30+ resolved trades show positive CLV.")
+    print(f"    ⏰ Best traded ~12–1pm LOCAL per city — validation shows the edge fades to")
+    print(f"       zero after ~2pm (the market prices the same observations you see).")
+    print(f"    All bets are paper/small until 30+ resolved trades show positive edge.")
 
     for i, s in enumerate(signals, 1):
         print(f"\n  #{i}  {s['ticker']}  [{s['city']}]  ({s['model_kind']}·{s['confidence']})")

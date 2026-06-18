@@ -71,15 +71,21 @@ CITIES = {
     },
 }
 
-# Extra high-temp series, configured AUTOMATICALLY (not hand-verified). The station +
-# grid are derived from Kalshi's own `settlement_sources` (the NWS CLI office in the
-# rules URL → station; station coords → NWS grid). This derivation was checked to
-# reproduce the 4 hand-verified cities above EXACTLY, so it can't reintroduce the
-# wrong-station/fake-edge bug. These are opt-in via --extra-cities and are tagged as
-# forward-validating (the model is validated; these specific cities are not yet).
+# Extra high-temp series, configured AUTOMATICALLY: station + grid are derived from
+# Kalshi's own `settlement_sources` (CLI office in the rules URL → station; station
+# coords → NWS grid). The derivation was checked to reproduce the 4 hand-verified cities
+# above EXACTLY, so it can't reintroduce the wrong-station/fake-edge bug.
+#
+# This list is PRUNED to the cities where the intraday model is well-calibrated on a
+# 2025 ERA5 backtest (uncertain-zone pred≈actual at 1pm). Excluded as miscalibrated:
+#   LAX 0.39→0.05 & HOU 0.48→0.11 & BOS 0.47→0.23 & DCA 0.47→0.34 (overconfident),
+#   SEA 0.48→0.57 (underconfident), AUS borderline. Calibration ≠ proven edge (no
+#   historical prices for these), so they still forward-validate via --paper.
 EXTRA_SERIES = [
-    "KXHIGHPHIL", "KXHIGHLAX", "KXHIGHTDAL", "KXHIGHHOU", "KXHIGHTATL",
-    "KXHIGHTBOS", "KXHIGHTDC", "KXHIGHTPHX", "KXHIGHTSEA", "KXHIGHAUS",
+    "KXHIGHPHIL",  # Philadelphia KPHL — 0.47→0.43 ok
+    "KXHIGHTDAL",  # Dallas KDFW       — 0.48→0.51 ok
+    "KXHIGHTATL",  # Atlanta KATL      — 0.48→0.45 ok
+    "KXHIGHTPHX",  # Phoenix KPHX      — 0.48→0.50 ok
 ]
 CITY_CFG_CACHE = Path(__file__).parent.parent / "data" / "city_config_cache.json"
 
@@ -741,7 +747,7 @@ TRUST_RANK = {"locked": 0, "high": 1, "speculative": 2, "forecast": 3}
 
 def _risk_note(s: dict) -> str:
     """One-line, plain-English read on what a pick depends on."""
-    prefix = "[unvalidated city] " if s.get("extra_city") else ""
+    prefix = "[extra: calibrated, edge forward-validating] " if s.get("extra_city") else ""
     c = s["confidence"]
     return prefix + _risk_body(s, c)
 
@@ -1083,10 +1089,10 @@ def main() -> None:
                         help="Hands-off daily loop: settle/grade prior trades (with CLV), then "
                              "auto-log today's new disciplined picks (deduped). Run once a day.")
     parser.add_argument("--extra-cities", action="store_true",
-                        help="Also scan ~10 more cities auto-configured from Kalshi's settlement "
-                             "rules (Phila, LA, Dallas, Houston, Atlanta, Boston, DC, Phoenix, "
-                             "Seattle, Austin). Same validated model; these cities not yet "
-                             "individually validated, so they forward-validate via --paper.")
+                        help="Also scan 4 more cities (Philadelphia, Dallas, Atlanta, Phoenix) "
+                             "auto-configured from Kalshi's settlement rules and kept only "
+                             "because the model is well-calibrated there on a 2025 backtest. "
+                             "Edge not yet price-validated, so they forward-validate via --paper.")
     args = parser.parse_args()
 
     if args.grade:

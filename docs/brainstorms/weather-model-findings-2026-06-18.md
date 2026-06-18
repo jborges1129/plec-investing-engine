@@ -113,6 +113,16 @@ the tradeable edge **peaks at 12–1pm and decays to nothing by 2–4pm** — by
 market has priced the same observations we have. **Trade ~12–1pm local.** The scanner now
 prints this guidance.
 
+### 6. Expanding to more cities (validated, not guessed)
+Kalshi's series `settlement_sources` URL names the CLI office (`issuedby=PHL` → KPHL);
+station coords → NWS grid. This derivation reproduces all 4 hand-verified cities' station
+AND grid exactly, so it can't reintroduce the wrong-station/fake-edge bug. A 2025 ERA5
+calibration backtest at 1pm screened 10 candidates — kept the 4 well-calibrated
+(Philadelphia 0.47→0.43, Dallas 0.48→0.51, Atlanta 0.48→0.45, Phoenix 0.48→0.50);
+dropped LA (0.39→0.05), Houston (0.48→0.11), Boston (0.47→0.23), DC (0.47→0.34) as
+overconfident and Seattle (0.48→0.57) as underconfident. Opt-in `--extra-cities`; edge
+still forward-validates (no historical prices for these).
+
 ## Bottom line
 The edge is **real but thin** — confirmed by a significant post-entry line drift
 (+7.3¢, CI clear of 0), not yet by significant realized ROI (CI straddles 0). It is NOT

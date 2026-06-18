@@ -22,12 +22,12 @@ venv/bin/python kalshi_module/weather_signal.py --paper
 Then place the trustworthy picks manually at kalshi.com. To look without logging, drop
 `--paper`. To just re-grade: `--grade`.
 
-Add `--extra-cities` to also scan ~10 more cities (Philadelphia, LA, Dallas, Houston,
-Atlanta, Boston, DC, Phoenix, Seattle, Austin). Their resolution station + NWS grid are
-derived automatically from Kalshi's own settlement rules (verified to reproduce the 4
-core cities exactly), so there's no wrong-station risk — but the model isn't yet
-individually validated on them, so they're tagged `[unvalidated city]` and forward-
-validate through the `--paper` record.
+Add `--extra-cities` to also scan **Philadelphia, Dallas, Atlanta, Phoenix**. Their
+resolution station + NWS grid are derived automatically from Kalshi's own settlement
+rules (verified to reproduce the 4 core cities exactly — no wrong-station risk). These 4
+were kept from a 10-city candidate set because the model is **well-calibrated** there on a
+2025 backtest; LA, Houston, Boston, DC (overconfident) and Seattle (underconfident) were
+dropped. Their *edge* isn't price-validated yet, so they forward-validate via `--paper`.
 
 ## Reading the output
 

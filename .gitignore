@@ -6,6 +6,10 @@ data/trading.db
 data/*.db
 data/screener_cache_*.json
 data/sp_universe.csv
+# Large API/model caches (regenerated on demand by the kalshi tools)
+data/kalshi_api_cache.json
+data/calib_cache.json
+data/ensemble_calib_cache.json
 
 # Python
 __pycache__/

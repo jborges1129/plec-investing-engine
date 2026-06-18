@@ -787,6 +787,32 @@ def station_max_for_date(station: str, day: str) -> float | None:
         return None
 
 
+def yes_closing_price(series: str, ticker: str, res_date: str) -> float | None:
+    """
+    Last traded Yes price (0-1) before the market resolved — the "closing line".
+    CLV = (our side's closing price − our entry) is the roadmap's robust edge metric,
+    so grading must capture it. Pulls Kalshi hourly candlesticks over a generous UTC
+    window around the resolution day and returns the final candle with a valid close.
+    """
+    try:
+        start = int(datetime.fromisoformat(f"{res_date}T00:00:00+00:00").timestamp())
+        end = int(datetime.fromisoformat(f"{res_date}T23:59:59+00:00").timestamp()) + 86400
+        r = requests.get(
+            f"{KALSHI_API}/series/{series}/markets/{ticker}/candlesticks",
+            headers=KALSHI_HEADERS,
+            params={"start_ts": start, "end_ts": end, "period_interval": 60},
+            timeout=15,
+        )
+        r.raise_for_status()
+        for k in reversed(r.json().get("candlesticks", [])):
+            px = (k.get("price") or {}).get("close_dollars")
+            if px not in (None, ""):
+                return float(px)
+    except Exception:
+        return None
+    return None
+
+
 def _parse_threshold_from_notes(notes: str) -> tuple[str, float | None, float | None] | None:
     """Recover (strike_type, floor, cap) from the Notes string we log."""
     import re
@@ -858,6 +884,15 @@ def grade_trades() -> None:
         row["Outcome"] = "Win" if won else "Loss"
         row["PnL_USD"] = f"{pnl:.2f}"
         row["Notes"] = (row.get("Notes", "") + f" | actual_max={actual:.0f}F").strip()
+
+        # Closing line value: store OUR SIDE's closing price so CLV = close − entry
+        # works uniformly for Yes and No (the summary below relies on that).
+        if not row.get("Closing_Price"):
+            yes_close = yes_closing_price(series, row["Market"], day)
+            if yes_close is not None:
+                our_close = yes_close if row["Side"] == "Yes" else (1.0 - yes_close)
+                row["Closing_Price"] = f"{our_close:.4f}"
+                row["CLV"] = f"{our_close - entry:.4f}"
         graded += 1
 
     with open(CSV_PATH, "w", newline="") as f:
@@ -869,17 +904,17 @@ def grade_trades() -> None:
     resolved = [r for r in rows if r.get("Outcome") in ("Win", "Loss")]
     wins = sum(1 for r in resolved if r["Outcome"] == "Win")
     pnl = sum(float(r["PnL_USD"]) for r in resolved if r.get("PnL_USD"))
-    clvs = [float(r["Closing_Price"]) - float(r["Entry_Price"])
-            for r in resolved if r.get("Closing_Price") and r.get("Entry_Price")]
+    clvs = [float(r["CLV"]) for r in resolved if r.get("CLV") not in (None, "")]
     print(f"\nGraded {graded} new trade(s). Resolved total: {len(resolved)}")
     if resolved:
         print(f"  Record: {wins}-{len(resolved)-wins}  ({wins/len(resolved)*100:.0f}% hit rate)")
-        print(f"  Total P&L: ${pnl:+.2f}")
+        print(f"  Total P&L: ${pnl:+.2f}  (avg {pnl/len(resolved):+.2f}/trade)")
         if clvs:
-            print(f"  Avg CLV: {sum(clvs)/len(clvs)*100:+.1f}¢ over {len(clvs)} trades with closing prices")
-        else:
-            print("  CLV: fill Closing_Price (last price before resolution) to measure edge.")
-        print("  → Gate for real capital: 30+ resolved trades with positive avg CLV.")
+            print(f"  Avg CLV: {sum(clvs)/len(clvs)*100:+.1f}¢ over {len(clvs)} trades (closing line auto-captured)")
+            print("  NOTE: same-day weather settles to ~0/1, so CLV ≈ P&L here (not an")
+            print("        independent signal). Robust edge = the multi-month betting sim + ")
+            print("        forward consistency. Treat ROI and CLV agreement as one confirmation.")
+        print("  → Gate for real capital: 30+ resolved trades, positive P&L AND CLV.")
 
         _report_per_city_bias(resolved)
 

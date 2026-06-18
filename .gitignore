@@ -10,6 +10,7 @@ data/sp_universe.csv
 data/kalshi_api_cache.json
 data/calib_cache.json
 data/ensemble_calib_cache.json
+data/city_config_cache.json
 
 # Python
 __pycache__/

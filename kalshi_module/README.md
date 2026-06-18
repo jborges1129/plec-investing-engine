@@ -22,6 +22,13 @@ venv/bin/python kalshi_module/weather_signal.py --paper
 Then place the trustworthy picks manually at kalshi.com. To look without logging, drop
 `--paper`. To just re-grade: `--grade`.
 
+Add `--extra-cities` to also scan ~10 more cities (Philadelphia, LA, Dallas, Houston,
+Atlanta, Boston, DC, Phoenix, Seattle, Austin). Their resolution station + NWS grid are
+derived automatically from Kalshi's own settlement rules (verified to reproduce the 4
+core cities exactly), so there's no wrong-station risk — but the model isn't yet
+individually validated on them, so they're tagged `[unvalidated city]` and forward-
+validate through the `--paper` record.
+
 ## Reading the output
 
 Each pick carries a **trust tier** — read this first:

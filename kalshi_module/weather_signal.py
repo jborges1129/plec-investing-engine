@@ -71,6 +71,88 @@ CITIES = {
     },
 }
 
+# Extra high-temp series, configured AUTOMATICALLY (not hand-verified). The station +
+# grid are derived from Kalshi's own `settlement_sources` (the NWS CLI office in the
+# rules URL → station; station coords → NWS grid). This derivation was checked to
+# reproduce the 4 hand-verified cities above EXACTLY, so it can't reintroduce the
+# wrong-station/fake-edge bug. These are opt-in via --extra-cities and are tagged as
+# forward-validating (the model is validated; these specific cities are not yet).
+EXTRA_SERIES = [
+    "KXHIGHPHIL", "KXHIGHLAX", "KXHIGHTDAL", "KXHIGHHOU", "KXHIGHTATL",
+    "KXHIGHTBOS", "KXHIGHTDC", "KXHIGHTPHX", "KXHIGHTSEA", "KXHIGHAUS",
+]
+CITY_CFG_CACHE = Path(__file__).parent.parent / "data" / "city_config_cache.json"
+
+
+def derive_city_config(series: str) -> dict | None:
+    """
+    Build a city config for any Kalshi high-temp series from its declared settlement
+    source: settlement_sources URL → `issuedby` CLI station → station coords → NWS grid.
+    Returns None if anything can't be resolved (caller skips the city).
+    """
+    import re
+    try:
+        s = requests.get(f"{KALSHI_API}/series/{series}", headers=KALSHI_HEADERS, timeout=15)
+        s.raise_for_status()
+        meta = s.json().get("series", {})
+        srcs = meta.get("settlement_sources") or []
+        url = srcs[0].get("url", "") if srcs else ""
+        m = re.search(r"issuedby=([A-Za-z]+)", url)
+        if not m:
+            return None
+        station = "K" + m.group(1).upper()
+        st = requests.get(f"https://api.weather.gov/stations/{station}",
+                          headers=NWS_HEADERS, timeout=15)
+        st.raise_for_status()
+        lon, lat = st.json()["geometry"]["coordinates"]
+        pt = requests.get(f"https://api.weather.gov/points/{lat},{lon}",
+                          headers=NWS_HEADERS, timeout=15).json()["properties"]
+        grid = f"{pt['gridId']}/{pt['gridX']},{pt['gridY']}"
+        # Clean the verbose Kalshi title down to just the place name.
+        raw = meta.get("title", series)
+        name = re.sub(r"(?i)\b(highest|high|maximum|max|daily|temperature|temp|in)\b", "", raw)
+        name = re.sub(r"\s+", " ", name).strip() or series
+        return {
+            "name": f"{name} ({station})",
+            "station": station,
+            "forecast_url": f"https://api.weather.gov/gridpoints/{grid}/forecast/hourly",
+            "daily_url":    f"https://api.weather.gov/gridpoints/{grid}/forecast",
+            "extra": True,
+        }
+    except Exception:
+        return None
+
+
+def load_cities(include_extra: bool = False) -> dict:
+    """Return the city config dict. The 4 hand-verified cities always; the derived
+    extras (cached to disk) only when include_extra is set."""
+    cities = dict(CITIES)
+    if not include_extra:
+        return cities
+    import json
+    cache = {}
+    if CITY_CFG_CACHE.exists():
+        try:
+            cache = json.loads(CITY_CFG_CACHE.read_text())
+        except Exception:
+            cache = {}
+    changed = False
+    for series in EXTRA_SERIES:
+        if series in cache and cache[series]:
+            cities[series] = cache[series]
+            continue
+        cfg = derive_city_config(series)
+        if cfg:
+            cache[series] = cfg
+            cities[series] = cfg
+            changed = True
+    if changed:
+        try:
+            CITY_CFG_CACHE.write_text(json.dumps(cache, indent=2))
+        except Exception:
+            pass
+    return cities
+
 # ── Signal parameters ─────────────────────────────────────────────────────────
 
 DEFAULT_MIN_EDGE = 0.10  # 0-10¢ "edges" were breakeven in the 478-bet sim (fees/noise)
@@ -475,11 +557,13 @@ def compute_signals(
     min_oi: float = DEFAULT_MIN_OI,
     max_bet: float = DEFAULT_MAX_BET,
     discipline: bool = True,
+    cities: dict | None = None,
 ) -> list[dict]:
     signals: list[dict] = []
     disc_skips = {"buggy_edge": 0, "deep_longshot": 0}
+    cities = cities if cities is not None else CITIES
 
-    for series_ticker, city_cfg in CITIES.items():
+    for series_ticker, city_cfg in cities.items():
         print(f"  {city_cfg['name']:<28}", end=" ", flush=True)
 
         try:
@@ -602,6 +686,7 @@ def compute_signals(
 
             signals.append({
                 "city": city_cfg["name"],
+                "extra_city": bool(city_cfg.get("extra")),
                 "ticker": market["ticker"],
                 "title": market.get("title", ""),
                 "target_date": target_date,
@@ -656,7 +741,12 @@ TRUST_RANK = {"locked": 0, "high": 1, "speculative": 2, "forecast": 3}
 
 def _risk_note(s: dict) -> str:
     """One-line, plain-English read on what a pick depends on."""
+    prefix = "[unvalidated city] " if s.get("extra_city") else ""
     c = s["confidence"]
+    return prefix + _risk_body(s, c)
+
+
+def _risk_body(s: dict, c: str) -> str:
     if c == "locked":
         return "LOCKED — today's observed high already decides this; lowest risk"
     if c == "high":
@@ -856,7 +946,8 @@ def grade_trades() -> None:
     with open(CSV_PATH, newline="") as f:
         rows = list(csv.DictReader(f))
 
-    series_to_station = {sk: cfg["station"] for sk, cfg in CITIES.items()}
+    all_cities = load_cities(include_extra=True)  # so extra-city trades grade too (cached)
+    series_to_station = {sk: cfg["station"] for sk, cfg in all_cities.items()}
     today = date.today()
     graded = 0
     for row in rows:
@@ -943,6 +1034,7 @@ def _report_per_city_bias(resolved: list[dict]) -> None:
     calibration before it's wired into PEAK_BIAS — and ideally applied per city.
     """
     import re
+    all_cities = load_cities(include_extra=True)
     by_city: dict[str, list[float]] = {}
     for r in resolved:
         notes = r.get("Notes", "")
@@ -951,7 +1043,7 @@ def _report_per_city_bias(resolved: list[dict]) -> None:
         if not fm or not am:
             continue
         series = r.get("Market", "").split("-")[0]
-        city = CITIES.get(series, {}).get("name", series)
+        city = all_cities.get(series, {}).get("name", series)
         by_city.setdefault(city, []).append(float(fm.group(1)) - float(am.group(1)))
     if not by_city:
         return
@@ -990,6 +1082,11 @@ def main() -> None:
     parser.add_argument("--paper", action="store_true",
                         help="Hands-off daily loop: settle/grade prior trades (with CLV), then "
                              "auto-log today's new disciplined picks (deduped). Run once a day.")
+    parser.add_argument("--extra-cities", action="store_true",
+                        help="Also scan ~10 more cities auto-configured from Kalshi's settlement "
+                             "rules (Phila, LA, Dallas, Houston, Atlanta, Boston, DC, Phoenix, "
+                             "Seattle, Austin). Same validated model; these cities not yet "
+                             "individually validated, so they forward-validate via --paper.")
     args = parser.parse_args()
 
     if args.grade:
@@ -1006,6 +1103,10 @@ def main() -> None:
     print(f"Bankroll: ${args.bankroll:.0f}  |  Min edge: {args.min_edge*100:.0f}¢  |  ¼-Kelly\n")
     print("Fetching markets + NWS forecasts:")
 
+    cities = load_cities(include_extra=args.extra_cities)
+    if args.extra_cities:
+        print(f"(scanning {len(cities)} cities incl. auto-configured extras)\n")
+
     signals = compute_signals(
         today,
         bankroll=args.bankroll,
@@ -1014,6 +1115,7 @@ def main() -> None:
         min_oi=args.min_oi,
         max_bet=args.max_bet,
         discipline=not args.no_discipline,
+        cities=cities,
     )
     print_signals(signals, bankroll=args.bankroll)
 

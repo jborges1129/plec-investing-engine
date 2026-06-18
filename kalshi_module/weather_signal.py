@@ -202,7 +202,15 @@ def kelly_fraction(model_prob: float, entry_price: float) -> float:
 #   σ(hours_to_peak) = STD_AT_PEAK + STD_PER_HOUR_TO_PEAK * hours_to_peak  (capped)
 STD_AT_PEAK = 1.4          # °F uncertainty when the peak is imminent (was 0.7 — too tight)
 STD_PER_HOUR_TO_PEAK = 0.10  # °F added per forecast-hour until the peak (was 0.45)
-STD_CAP = 2.8              # °F ceiling on σ
+STD_CAP = 3.2              # °F ceiling on σ
+
+# σ floor for the UNDER-OBSERVED case. Normally hours-to-peak captures uncertainty, but
+# when the forecast front-loads a big jump the labeled peak can be "imminent" (h2p≈0)
+# while observations are still many degrees below it — e.g. obs 81°F at 2pm, forecast
+# 91°F at 3pm. The h2p formula would call that near-certain (σ≈1.4); it is not. The
+# training data shows a large unrealized rise carries irreducible error std ≈1.8-1.9°F
+# regardless of h2p, so we floor σ at STD_AT_PEAK + STD_PER_DEGREE_RISE·(projected rise).
+STD_PER_DEGREE_RISE = 0.10  # °F of σ per °F of still-unobserved projected rise
 
 # Carrying the morning residual forward worsened calibration in the backtest — off.
 RESIDUAL_DAMP = 0.0        # fraction of the running residual carried to the peak
@@ -281,8 +289,19 @@ def intraday_max_cdf(
     else:
         remaining_peak = raw_remaining_peak
     hours_to_peak = max(0.0, (peak_dt - now).total_seconds() / 3600.0)
-    std = min(STD_CAP, STD_AT_PEAK + STD_PER_HOUR_TO_PEAK * hours_to_peak)
-    confidence = "high" if hours_to_peak <= PEAK_SOON_HOURS else "speculative"
+    projected_rise = max(0.0, remaining_peak - observed_max)  # still-unobserved climb
+    std = min(STD_CAP, max(
+        STD_AT_PEAK + STD_PER_HOUR_TO_PEAK * hours_to_peak,
+        STD_AT_PEAK + STD_PER_DEGREE_RISE * projected_rise,
+    ))
+    # Confidence reflects what we actually KNOW, not just the clock: a peak that is
+    # "imminent" but still 3°F+ above the observed max is forecast-dependent, not locked.
+    if observed_max >= remaining_peak:
+        confidence = "locked"        # obs already at/above the projected peak
+    elif hours_to_peak <= PEAK_SOON_HOURS and projected_rise <= 3.0:
+        confidence = "high"          # peak soon AND obs nearly there
+    else:
+        confidence = "speculative"   # outcome still hinges on an unobserved rise
 
     def cdf(x: float) -> float:
         # final = max(observed_max, R), R ~ Normal(remaining_peak, std)
@@ -293,7 +312,8 @@ def intraday_max_cdf(
     debug = {
         "observed_max": observed_max, "raw_residual": raw_resid, "residual": resid,
         "remaining_peak": remaining_peak, "std": std, "hours_to_peak": hours_to_peak,
-        "confidence": confidence, "anchored_to_daily_high": anchored,
+        "projected_rise": projected_rise, "confidence": confidence,
+        "anchored_to_daily_high": anchored,
     }
     return cdf, debug
 
@@ -597,6 +617,7 @@ def compute_signals(
                                    if model_kind == "intraday" and intraday_dbg.get("remaining_peak") is not None else None),
                 "residual": (round(intraday_dbg.get("residual", 0.0), 1) if model_kind == "intraday" else None),
                 "hours_to_peak": (round(intraday_dbg.get("hours_to_peak", 0.0), 1) if model_kind == "intraday" else None),
+                "projected_rise": (round(intraday_dbg.get("projected_rise", 0.0), 1) if model_kind == "intraday" else None),
                 "std": (round(intraday_dbg.get("std", 0.0), 2) if model_kind == "intraday" else None),
                 "model_pct": round(p_yes, 4),
                 "side": side,
@@ -629,6 +650,24 @@ def compute_signals(
 
 # ── Output ────────────────────────────────────────────────────────────────────
 
+# Plain-language trust tiers. Ordering = how much to trust the pick (best first).
+TRUST_RANK = {"locked": 0, "high": 1, "speculative": 2, "forecast": 3}
+
+
+def _risk_note(s: dict) -> str:
+    """One-line, plain-English read on what a pick depends on."""
+    c = s["confidence"]
+    if c == "locked":
+        return "LOCKED — today's observed high already decides this; lowest risk"
+    if c == "high":
+        return "SOLID — peak is imminent and the temp is nearly there"
+    if c == "speculative":
+        rise = s.get("projected_rise")
+        extra = f" a further +{rise:.0f}°F" if rise else " more warming"
+        return f"RISKY — needs{extra} that hasn't happened yet; forecast-dependent"
+    return "NEXT-DAY — pure forecast, no live observations yet; most speculative"
+
+
 def print_signals(signals: list[dict], bankroll: float) -> None:
     print(f"\n{'━' * 68}")
     print(f"  KALSHI WEATHER SIGNALS  ·  {date.today().isoformat()}")
@@ -638,26 +677,38 @@ def print_signals(signals: list[dict], bankroll: float) -> None:
         print("\n  No signals above edge threshold today.\n")
         return
 
+    # Sort by trust tier first, then edge — the safest, strongest picks rise to the top.
+    signals = sorted(signals, key=lambda s: (TRUST_RANK.get(s["confidence"], 9), -s["edge"]))
+
+    trustworthy = [s for s in signals if s["confidence"] in ("locked", "high")]
+    print(f"\n  ▶ WHAT TO DO: {len(trustworthy)} trustworthy pick(s) "
+          f"(locked/solid); {len(signals) - len(trustworthy)} speculative (act small or skip).")
+    if trustworthy:
+        names = ", ".join(f"{s['city'].split(' (')[0]} {s['threshold_str']} {s['side']}"
+                          for s in trustworthy[:3])
+        print(f"    Start with: {names}.")
+    print(f"    All bets are paper/small until 30+ resolved trades show positive CLV.")
+
     for i, s in enumerate(signals, 1):
         print(f"\n  #{i}  {s['ticker']}  [{s['city']}]  ({s['model_kind']}·{s['confidence']})")
         print(f"       {s['title']}")
+        print(f"       → {_risk_note(s)}")
         print(f"       Resolves: {s['target_date']} ({s['days_out']}d out)  |  Type: {s['strike_type']}  |  Threshold: {s['threshold_str']}")
         if s["model_kind"] == "intraday":
             print(f"       Observed max so far: {s['observed_max']}°F  |  "
-                  f"Remaining-hours peak: {s['remaining_peak']}°F  "
-                  f"(carried residual {s['residual']:+.1f}°F vs forecast)")
+                  f"Projected peak: {s['remaining_peak']}°F  (needs +{s['projected_rise']:.0f}°F more)")
             print(f"       Hours to peak: {s['hours_to_peak']}  |  Uncertainty σ: {s['std']}°F  |  Confidence: {s['confidence']}")
         else:
             print(f"       NWS forecast max: {s['forecast_max']}°F  (day-ahead Gaussian)")
         print(f"       Model prob (Yes): {s['model_pct']*100:.1f}%  |  Kalshi ask: {s['entry_price']*100:.0f}¢")
         print(f"       Side: {s['side']}  |  Net edge: +{s['edge']*100:.1f}¢  |  Kelly: {s['kelly_fraction']*100:.1f}%")
-        print(f"       Half-Kelly bet: ${s['bet_size_usd']:.2f}  (on ${bankroll:.0f} bankroll)")
+        print(f"       Suggested bet: ${s['bet_size_usd']:.2f}  (¼-Kelly on ${bankroll:.0f} bankroll)")
         print(f"       OI: {s['open_interest']:.0f}  |  Vol 24h: {s['volume_24h']:.0f}")
 
     print(f"\n{'━' * 68}")
     print(f"  {len(signals)} signal(s).  Enter trades manually at kalshi.com")
-    print(f"  Confidence: 'locked'/'high' = peak passed/imminent (trust); "
-          f"'speculative' = peak hours away (don't fund yet).")
+    print(f"  Trust tiers: LOCKED (decided) > SOLID (peak imminent, obs there) > "
+          f"RISKY (needs unobserved rise) > NEXT-DAY (forecast only).")
     print(f"  Log with --log, then grade the next day with --grade to build a CLV record.")
     print(f"{'━' * 68}\n")
 
@@ -895,7 +946,7 @@ def main() -> None:
 
     today = date.today()
     print(f"\nKalshi Weather Signal Scanner  ·  {today.isoformat()}")
-    print(f"Bankroll: ${args.bankroll:.0f}  |  Min edge: {args.min_edge*100:.0f}¢  |  Half-Kelly\n")
+    print(f"Bankroll: ${args.bankroll:.0f}  |  Min edge: {args.min_edge*100:.0f}¢  |  ¼-Kelly\n")
     print("Fetching markets + NWS forecasts:")
 
     signals = compute_signals(

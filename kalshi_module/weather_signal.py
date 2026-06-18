@@ -185,6 +185,12 @@ DEFAULT_MAX_BET = 10.0  # hard cap per bet until model is validated
 MIN_ENTRY_PRICE = 0.15   # below this, win rate ≈8% — too high-variance for the pilot
 ABSURD_EDGE = 0.50       # pure data-error guard (bad threshold parse / dead book), not a signal filter
 
+# Portfolio-level cap. Per-bet ¼-Kelly can sum to more than the whole bankroll across a
+# dozen picks; on Kalshi each binary bet can lose its full stake, so total deployment IS
+# the max daily loss. Cap it so even a total wipeout of one day's book stays bounded —
+# this is the boss-pitch defensibility argument (loss is mathematically capped).
+MAX_DAILY_DEPLOY_FRAC = 0.40  # never stake more than 40% of bankroll across all picks/day
+
 CSV_PATH = Path(__file__).parent.parent / "data" / "kalshi_trades.csv"
 CSV_FIELDNAMES = [
     "Date", "Market", "Side", "My_Model_Pct", "Kalshi_Price",
@@ -735,6 +741,18 @@ def compute_signals(
               f"(entry <{MIN_ENTRY_PRICE*100:.0f}¢), {disc_skips['buggy_edge']} absurd-edge "
               f"(>{ABSURD_EDGE*100:.0f}¢ — data error)")
 
+    # Portfolio cap: each Kalshi binary can lose its full stake, so the day's total
+    # deployment is the max daily loss. Scale all stakes down proportionally if the
+    # suggested book exceeds MAX_DAILY_DEPLOY_FRAC of bankroll — keeps loss bounded.
+    total_stake = sum(s["bet_size_usd"] for s in signals)
+    cap = bankroll * MAX_DAILY_DEPLOY_FRAC
+    if total_stake > cap > 0:
+        scale = cap / total_stake
+        for s in signals:
+            s["bet_size_usd"] = round(s["bet_size_usd"] * scale, 2)
+        print(f"  portfolio cap: scaled stakes ×{scale:.2f} so total ≤ ${cap:.0f} "
+              f"({MAX_DAILY_DEPLOY_FRAC*100:.0f}% of bankroll; was ${total_stake:.0f})")
+
     signals.sort(key=lambda x: x["edge"], reverse=True)
     return signals
 
@@ -803,8 +821,13 @@ def print_signals(signals: list[dict], bankroll: float) -> None:
         print(f"       Suggested bet: ${s['bet_size_usd']:.2f}  (¼-Kelly on ${bankroll:.0f} bankroll)")
         print(f"       OI: {s['open_interest']:.0f}  |  Vol 24h: {s['volume_24h']:.0f}")
 
+    total_stake = sum(s["bet_size_usd"] for s in signals)
+    trust_stake = sum(s["bet_size_usd"] for s in trustworthy)
     print(f"\n{'━' * 68}")
     print(f"  {len(signals)} signal(s).  Enter trades manually at kalshi.com")
+    print(f"  RISK: total suggested stake ${total_stake:.0f} ({total_stake/bankroll*100:.0f}% of "
+          f"${bankroll:.0f}); ${trust_stake:.0f} of it on trustworthy picks. On Kalshi each bet's")
+    print(f"        max loss = its stake, so that total IS your bounded worst-case for the day.")
     print(f"  Trust tiers: LOCKED (decided) > SOLID (peak imminent, obs there) > "
           f"RISKY (needs unobserved rise) > NEXT-DAY (forecast only).")
     print(f"  Log with --log, then grade the next day with --grade to build a CLV record.")

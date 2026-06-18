@@ -81,13 +81,30 @@ most profitable bets — they were removed.
    otherwise, crashing the `--edge` sim. Added research knobs (`--peak-bias`,
    `--peak-discount`, `--std-at-peak`) and a betting report split by side.
 
+### 4. How real is the edge? (city-day-clustered bootstrap)
+Bets within a city-day share one weather outcome, so the honest sample is **200 distinct
+city-days**, not 402 bets. Resampling city-days (min-edge 0.10 window):
+
+| Metric | Point | 95% CI | Read |
+|---|---|---|---|
+| ROI/bet | +2.8% | **[−1.9%, +7.7%]** | straddles 0 — not yet significant |
+| CLV (closing) | +4.2¢ | [−0.4¢, +9.0¢] | degenerate (settles to 0/1) |
+| **3h line-drift** | **+7.3¢** | **[+3.2¢, +11.6¢]** | **clearly positive — real edge** |
+
+The same-day P&L is too high-variance to call significant on two months, but the market
+**systematically drifts toward our side in the ~3h after entry** — the methodologically
+clean edge signal, and it's significant. The model finds mispricings the book later
+corrects; we just can't yet prove that converts to significant realized P&L on this
+sample.
+
 ## Bottom line
-The edge is **real but thin and provisional** (+3.7¢ avg CLV over 478 bets, ~2 months,
-samples correlated by city-day). It is NOT where the calibration table pointed: the win
-comes from requiring a genuine edge (≥10¢, the bigger the better) on liquid markets and
-leaning toward favorites — on both sides — while avoiding deep longshots. σ refinement
-(ensembles) was measured and does not help. Keep validating forward via `--grade`; the
-roadmap gate (30+ resolved/category with +CLV) is the bar before scaling capital.
+The edge is **real but thin** — confirmed by a significant post-entry line drift
+(+7.3¢, CI clear of 0), not yet by significant realized ROI (CI straddles 0). It is NOT
+where calibration pointed: the win comes from requiring a genuine edge (≥10¢, bigger is
+better) on liquid markets, leaning toward favorites, on both sides, avoiding deep
+longshots. σ refinement (ensembles) was measured and does not help. **Paper/small stakes
+until the roadmap gate (30+ resolved/category, positive P&L AND drift) is met**; the
+`--grade` loop now captures this automatically.
 
 ## How to reproduce
 ```

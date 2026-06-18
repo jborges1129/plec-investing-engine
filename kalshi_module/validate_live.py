@@ -47,6 +47,7 @@ CITIES = {  # series: (name, lat, lon, tz, IEM ASOS station id)
 }
 IEM = "https://mesonet.agron.iastate.edu/cgi-bin/request/asos.py"
 DECISION_HOUR = 13  # 1pm local
+DRIFT_HOURS = 3     # measure line drift this many hours after entry (pre-resolution)
 
 
 def _load(p):
@@ -181,16 +182,26 @@ def model_prob_for(market, act_day, fc_day, tz):
 
 
 def candle_prices(series, ticker, day, tz, kcache):
-    """(yes_ask at decision hour, yes close price) from Kalshi candlesticks."""
+    """
+    Returns (yes_ask, yes_bid, close_px, mid_dec, mid_drift) from Kalshi candlesticks:
+      - yes_ask/yes_bid at the decision hour (our entry costs)
+      - close_px: final-candle traded price (settles to ~0/1 — degenerate CLV)
+      - mid_dec:  traded price at the decision hour
+      - mid_drift: traded price ~DRIFT_HOURS later but still pre-resolution — lets us
+        measure genuine line drift toward our side BEFORE the outcome is obvious, the
+        methodologically clean edge signal (vs the degenerate same-day closing CLV).
+    """
     o = int(datetime.fromisoformat(f"{day}T00:00").replace(tzinfo=tz).timestamp())
     c = int(datetime.fromisoformat(f"{day}T23:59").replace(tzinfo=tz).timestamp())
     j = kget(f"{KAPI}/series/{series}/markets/{ticker}/candlesticks",
              {"start_ts": o, "end_ts": c, "period_interval": 60}, kcache, f"cs:{ticker}")
     cs = j.get("candlesticks", [])
     if not cs:
-        return None, None, None
+        return None, None, None, None, None
     target = int(datetime.fromisoformat(f"{day}T{DECISION_HOUR:02d}:00").replace(tzinfo=tz).timestamp())
     dec = min(cs, key=lambda k: abs(k["end_period_ts"] - target))
+    drift_target = target + DRIFT_HOURS * 3600
+    drift = min(cs, key=lambda k: abs(k["end_period_ts"] - drift_target))
 
     def f(k, side, field):
         v = (k.get(side) or {}).get(field)
@@ -198,7 +209,10 @@ def candle_prices(series, ticker, day, tz, kcache):
     yes_ask = f(dec, "yes_ask", "close_dollars")
     yes_bid = f(dec, "yes_bid", "close_dollars")
     close_px = (cs[-1].get("price") or {}).get("close_dollars")
-    return yes_ask, yes_bid, (float(close_px) if close_px not in (None, "") else None)
+    mid_dec = (dec.get("price") or {}).get("close_dollars")
+    mid_drift = (drift.get("price") or {}).get("close_dollars")
+    g = lambda v: float(v) if v not in (None, "") else None
+    return yes_ask, yes_bid, g(close_px), g(mid_dec), g(mid_drift)
 
 
 def main():
@@ -262,7 +276,8 @@ def main():
                 wins += 1
 
             if args.edge:
-                yes_ask, yes_bid, close_px = candle_prices(series, m["ticker"], d, tz, kcache)
+                yes_ask, yes_bid, close_px, mid_dec, mid_drift = candle_prices(
+                    series, m["ticker"], d, tz, kcache)
                 if yes_ask is None or yes_bid is None or close_px is None:
                     continue
                 # Real entry costs: buy Yes at yes_ask; buy No at (1 - yes_bid).
@@ -275,8 +290,13 @@ def main():
                 won = (side == "Yes" and outcome == 1) or (side == "No" and outcome == 0)
                 pnl = (1 - entry if won else -entry) - kalshi_taker_fee(entry)
                 clv = (close_px - entry) if side == "Yes" else ((1 - close_px) - entry)
-                bet_rows.append(dict(city=name, side=side, won=won, pnl=pnl, clv=clv,
-                                     edge=edge, entry=entry, locked=locked))
+                # Pre-resolution line drift toward our side (clean edge signal, not degenerate).
+                drift = None
+                if mid_dec is not None and mid_drift is not None:
+                    drift = (mid_drift - mid_dec) if side == "Yes" else (mid_dec - mid_drift)
+                bet_rows.append(dict(city=name, city_day=f"{name}:{d}", side=side, won=won,
+                                     pnl=pnl, clv=clv, drift=drift, edge=edge, entry=entry,
+                                     locked=locked))
 
         overall["n"] += n
         overall["wins"] += wins
@@ -330,8 +350,41 @@ def main():
         print(" Yes side, observation-locked vs forecast-driven:")
         report("Yes, obs-LOCKED", F(side="Yes", locked=True))
         report("Yes, forecast-driven", F(side="Yes", locked=False))
-        print("  CLV (market drift toward our entry) is the robust edge signal; ROI on a")
-        print("  35%-win longshot book is high-variance, so weight CLV + n over ROI.")
+
+        # ── Honest uncertainty: bets within a city-day are correlated (one weather
+        #    outcome drives every threshold), so the effective sample is the number of
+        #    distinct city-days, not bets. Bootstrap by RESAMPLING city-days. ──
+        import random
+        days = sorted({r["city_day"] for r in bet_rows})
+        by_day = {d: [r for r in bet_rows if r["city_day"] == d] for d in days}
+
+        def stat(rows, key):
+            xs = [r[key] for r in rows if r.get(key) is not None]
+            return sum(xs) / len(xs) if xs else float("nan")
+
+        def boot_ci(key, iters=2000):
+            means = []
+            for _ in range(iters):
+                samp = [r for _ in days for r in by_day[random.choice(days)]]
+                means.append(stat(samp, key) * 100)
+            means.sort()
+            return means[int(0.025 * iters)], means[int(0.975 * iters)]
+
+        roi_lo, roi_hi = boot_ci("pnl")
+        clv_lo, clv_hi = boot_ci("clv")
+        drift_rows = [r for r in bet_rows if r.get("drift") is not None]
+        print(f"\n EFFECTIVE SAMPLE: {len(bet_rows)} bets but only {len(days)} independent "
+              f"city-days (bets within a day share one outcome).")
+        print(f"  ROI/bet  {stat(bet_rows,'pnl')*100:+.1f}%  | 95% CI (city-day bootstrap) "
+              f"[{roi_lo:+.1f}%, {roi_hi:+.1f}%]")
+        print(f"  CLV/bet  {stat(bet_rows,'clv')*100:+.1f}¢  | 95% CI "
+              f"[{clv_lo:+.1f}¢, {clv_hi:+.1f}¢]  (degenerate — settles to 0/1)")
+        if drift_rows:
+            d_lo, d_hi = boot_ci("drift")
+            print(f"  {DRIFT_HOURS}h line-drift toward our side {stat(drift_rows,'drift')*100:+.1f}¢ "
+                  f"| 95% CI [{d_lo:+.1f}¢, {d_hi:+.1f}¢]  ← clean pre-resolution edge signal")
+        print("  Edge is real only if these CIs sit clearly above zero. Treat anything whose")
+        print("  CI straddles 0 as unproven on this window.")
 
 
 if __name__ == "__main__":

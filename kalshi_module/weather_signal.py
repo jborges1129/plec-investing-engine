@@ -713,9 +713,17 @@ def print_signals(signals: list[dict], bankroll: float) -> None:
     print(f"{'━' * 68}\n")
 
 
-def log_signals_to_csv(signals: list[dict], auto_log: bool) -> None:
+def log_signals_to_csv(signals: list[dict], auto_log: bool, dedupe: bool = False) -> None:
     if not signals:
         return
+
+    if dedupe and CSV_PATH.exists():
+        with open(CSV_PATH, newline="") as f:
+            already = {r.get("Market", "") for r in csv.DictReader(f)}
+        signals = [s for s in signals if s["ticker"] not in already]
+        if not signals:
+            print("✓ Paper log: all of today's picks already logged (nothing new).")
+            return
 
     if not auto_log:
         print(f"Log to {CSV_PATH.name}?  [a]ll / [1] top only / [n]o  → ", end="")
@@ -905,7 +913,11 @@ def grade_trades() -> None:
     wins = sum(1 for r in resolved if r["Outcome"] == "Win")
     pnl = sum(float(r["PnL_USD"]) for r in resolved if r.get("PnL_USD"))
     clvs = [float(r["CLV"]) for r in resolved if r.get("CLV") not in (None, "")]
-    print(f"\nGraded {graded} new trade(s). Resolved total: {len(resolved)}")
+    # Distinct city-days = the honest effective sample (a day's bets share one outcome).
+    city_days = {(r.get("Market", "").split("-")[0], r.get("Market", "").split("-")[1])
+                 for r in resolved if len(r.get("Market", "").split("-")) >= 2}
+    print(f"\nGraded {graded} new trade(s). Resolved total: {len(resolved)} "
+          f"across {len(city_days)} independent city-days.")
     if resolved:
         print(f"  Record: {wins}-{len(resolved)-wins}  ({wins/len(resolved)*100:.0f}% hit rate)")
         print(f"  Total P&L: ${pnl:+.2f}  (avg {pnl/len(resolved):+.2f}/trade)")
@@ -973,6 +985,9 @@ def main() -> None:
     parser.add_argument("--no-discipline", action="store_true",
                         help="Disable discipline filters (deep-longshot + data-error guards); "
                              "research only")
+    parser.add_argument("--paper", action="store_true",
+                        help="Hands-off daily loop: settle/grade prior trades (with CLV), then "
+                             "auto-log today's new disciplined picks (deduped). Run once a day.")
     args = parser.parse_args()
 
     if args.grade:
@@ -980,6 +995,11 @@ def main() -> None:
         return
 
     today = date.today()
+    if args.paper:
+        print("Paper loop — step 1/2: settling & grading prior trades…")
+        grade_trades()
+        print("\nPaper loop — step 2/2: scanning today's picks…")
+
     print(f"\nKalshi Weather Signal Scanner  ·  {today.isoformat()}")
     print(f"Bankroll: ${args.bankroll:.0f}  |  Min edge: {args.min_edge*100:.0f}¢  |  ¼-Kelly\n")
     print("Fetching markets + NWS forecasts:")
@@ -996,7 +1016,8 @@ def main() -> None:
     print_signals(signals, bankroll=args.bankroll)
 
     if signals:
-        log_signals_to_csv(signals, auto_log=args.log)
+        # --paper auto-logs deduped (idempotent daily run); --log auto-logs all; else prompt.
+        log_signals_to_csv(signals, auto_log=args.log or args.paper, dedupe=args.paper)
 
 
 if __name__ == "__main__":
